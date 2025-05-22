@@ -1,0 +1,9 @@
+## Interface: 110105
+## Title: RCPT - Ready Check Pull Timer
+## Notes: Automatically handles ready check → pull flow
+## Author: boolbog
+## Version: 1.0
+## SavedVariables: RCPT_Config
+
+config.lua
+RCPT.lua
