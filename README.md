@@ -25,6 +25,7 @@
 | `/rcpt set <key> <value>`       | Sets config value (`pullDuration`, `retryTimeout`, `maxRetries`) |
 | `/rcpt addkeyword <word>`       | Adds a cancel keyword (up to 10 total) |
 | `/rcpt reset`                   | Resets configuration to defaults |
+| `/rcpt quiet`                   | Toggles the debugging text on/off |
 
 ---
 
