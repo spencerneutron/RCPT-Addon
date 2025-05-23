@@ -3,6 +3,7 @@ local f = CreateFrame("Frame")
 local retryCount = 0
 local readyMap = {}
 local scheduledCleanup = nil
+local initiatedByMe = false
 
 RCPT_InitDefaults()
 
@@ -40,6 +41,15 @@ local function UnregisterChatEvents()
     f:UnregisterEvent("CHAT_MSG_RAID_LEADER")
 end
 
+function RCPT_ToggleQuiet()
+    RCPT_Config.debug = not RCPT_Config.debug
+    if RCPT_Config.debug then
+        print("|cff00ccff[RCPT]|r Verbose mode |cff00ff00ENABLED|r.")
+    else
+        print("|cff00ccff[RCPT]|r Verbose mode |cffff0000DISABLED|r. Addon will run silently.")
+    end
+end
+
 function RCPT_RunReadyCheck()
     retryCount = 0
     RegisterChatEvents()
@@ -62,6 +72,7 @@ function RCPT_PrintHelp()
     print(" /rcpt set <key> <value>   → Set numeric config")
     print(" /rcpt addkeyword <word>   → Add a cancel keyword (max 10)")
     print(" /rcpt reset               → Reset config to defaults")
+    print(" /rcpt quiet               → Toggle addon chat messages on/off")
 end
 
 function RCPT_SetConfig(key, value)
@@ -136,6 +147,8 @@ function SlashCmdList.RCPT(msg)
         RCPT_AddKeyword(args[2]:lower())
     elseif command == "reset" then
         RCPT_ResetConfig()
+    elseif command == "quiet" then
+        RCPT_ToggleQuiet()
     else
         print("|cffff0000[RCPT]|r Unknown command. Use `/rcpt help`.")
     end
@@ -147,32 +160,59 @@ function SlashCmdList.RCPTHELP()
 end
 
 f:SetScript("OnEvent", function(_, event, ...)
+        -- if the player is not able to send a ready check, ignore everything
+    if not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player") then
+        return
+    end
+
     if event == "READY_CHECK" then
-        readyMap = {}
+        local initiatorUnit = ...
 
-        local myUnit = UnitName("player")
-        readyMap[myUnit] = true -- Add self to readiness map
-
-        Debug("Ready check started")
-
+        if UnitIsUnit("player", initiatorUnit) then
+            initiatedByMe = true
+            readyMap = {}
+            readyMap[UnitFullName("player")] = true
+            Debug("You initiated the ready check")
+        else
+            initiatedByMe = false
+            Debug("Another player initiated the ready check, ignoring")
+        end
     elseif event == "READY_CHECK_CONFIRM" then
-        local unit, isReady = ...
-        readyMap[unit] = isReady
-        Debug(unit .. " is " .. (isReady and "READY" or "NOT ready"))
+        if not initiatedByMe then
+            return
+        end
+        local unitToken, isReady = ...
+        local name, realm = UnitFullName(unitToken)
+        if name then
+            local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
+            readyMap[fullName] = isReady
+            Debug(fullName .. " is " .. (isReady and "READY" or "NOT ready"))
+        end
 
     elseif event == "READY_CHECK_FINISHED" then
+        if not initiatedByMe then
+            return
+        end
+
         Debug("Ready check finished")
         local allReady = true
-        for unit, isReady in pairs(readyMap) do
-            if not isReady then
-                allReady = false
-                break
+
+        for i = 1, GetNumGroupMembers() do
+            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
+            if online then
+                local fullName = name -- Already includes realm suffix like "Name-Realm"
+                if readyMap[fullName] ~= true then
+                    allReady = false
+                    Debug("Missing or not ready: " .. fullName)
+                    break
+                end
             end
         end
 
-        if allReady and next(readyMap) ~= nil then
+        if allReady then
             Debug("Everyone is ready, starting pull timer")
             StartPullTimer(RCPT_Config.pullDuration)
+            
             -- Cancel old one before scheduling a new one
             if scheduledCleanup then
                 scheduledCleanup:Cancel()
@@ -182,6 +222,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                 Debug("Pull timer expired, cleaning up chat listeners.")
                 UnregisterChatEvents()
                 scheduledCleanup = nil
+                initiatedByMe = false
             end)
         else
             Debug("Not everyone is ready")
@@ -193,6 +234,7 @@ f:SetScript("OnEvent", function(_, event, ...)
             else
                 Debug("Max retries reached")
                 UnregisterChatEvents()
+                initiatedByMe = false
             end
         end
 
