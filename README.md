@@ -57,7 +57,7 @@ This will clear saved variables and reload your UI.
 
 ## 📦 Installation
 
-1. Download the latest from [Wago](https://addons.wago.io/developers/projects/rcpt-addon) or [GitHub Releases](https://github.com/spencerneutron/RCPT/releases).
+1. Download the latest from [Wago](https://addons.wago.io/developers/projects/rcpt-addon) or [GitHub Releases](https://github.com/spencerneutron/RCPT-Addon/releases).
 2. Extract and place the `RCPT/` folder into your WoW AddOns directory.
 
 ---
