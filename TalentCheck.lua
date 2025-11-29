@@ -232,9 +232,9 @@ local function CreateReadyOverlay()
         overlay.loadoutText = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         overlay.loadoutText:SetPoint("TOPLEFT", overlay.specText, "BOTTOMLEFT", 0, -6)
 
-        -- Durability text
+        -- Durability text (leave space at top-right for the collapse button)
         overlay.durText = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        overlay.durText:SetPoint("TOPRIGHT", -12, -12)
+        overlay.durText:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", -36, -12)
 
         -- Repair text (large, centered)
         overlay.repairText = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -313,23 +313,23 @@ local function CreateReadyOverlay()
                         local isLow, numLowSlots, avgDur = CheckLowDurability(RCPT_TalentCheckDB.MinDurabilityPercent)
                         -- update texts
                         pcall(function()
-                                if not overlay.collapsed then
-                                        overlay.specText:SetText(specName)
-                                        overlay.loadoutText:SetText(loadoutName)
-                                        overlay.durText:SetText(string.format("Durability: %d%% (%d low)", math.floor(avgDur + 0.5), numLowSlots))
-                                end
-                                if isLow then
-                                        overlay.repairText:Show()
-                                        overlay.repairText:SetText("REPAIR NEEDED")
-                                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
-                                                ReadyCheckFrameYesButton:Disable()
+                                                if not overlay.collapsed then
+                                                        overlay.specText:SetText(specName)
+                                                        overlay.loadoutText:SetText(loadoutName)
+                                                        overlay.durText:SetText(string.format("Durability: %d%% (%d low)", math.floor(avgDur + 0.5), numLowSlots))
+                                                end
+                                        if isLow then
+                                                overlay.repairText:Show()
+                                                overlay.repairText:SetText("REPAIR NEEDED")
+                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
+                                                        ReadyCheckFrameYesButton:Disable()
+                                                end
+                                        else
+                                                overlay.repairText:Hide()
+                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
+                                                        ReadyCheckFrameYesButton:Enable()
+                                                end
                                         end
-                                else
-                                        overlay.repairText:Hide()
-                                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
-                                                ReadyCheckFrameYesButton:Enable()
-                                        end
-                                end
                         end)
                 end
         end)
@@ -566,6 +566,49 @@ local function ReadyCheckHandler()
                                 end
                         end
                 end)
+
+                -- Use legacy helpers for the non-overlay flow and for merchant re-checks
+                if isLow then
+                        if not replace then
+                                -- attach a Change Talents button to the default ReadyCheckFrame
+                                if ReadyCheckFrame and ReadyCheckFrameNoButton then
+                                        pcall(CreateChangeTalentsButton, ReadyCheckFrame, ReadyCheckFrameNoButton)
+                                end
+                                -- hide the default Yes button and show repair text on the default frame
+                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Hide then ReadyCheckFrameYesButton:Hide() end end)
+                                pcall(ShowRepairText, ReadyCheckFrame, ReadyCheckFrameYesButton)
+                        else
+                                -- overlay replacing default: ensure default yes button is disabled
+                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
+                        end
+
+                        -- register a MERCHANT_CLOSED watcher to re-check durability when the vendor closes
+                        if not frame.merchantHandler then
+                                local h = CreateFrame("Frame")
+                                h:RegisterEvent("MERCHANT_CLOSED")
+                                h:SetScript("OnEvent", function()
+                                        OnMerchantClosedRecheck(threshold, ReadyCheckFrameYesButton)
+                                end)
+                                frame.merchantHandler = h
+                        end
+                else
+                        -- not low: restore default UI and cleanup any merchant handler
+                        if not (RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck) then
+                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end end)
+                                pcall(HideRepairText)
+                        else
+                                -- overlay path: ensure overlay repair text already hidden, but also attempt to restore default yes
+                                pcall(HideRepairText)
+                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
+                        end
+                        if frame.merchantHandler then
+                                pcall(function()
+                                        frame.merchantHandler:UnregisterEvent("MERCHANT_CLOSED")
+                                        frame.merchantHandler:SetScript("OnEvent", nil)
+                                        frame.merchantHandler = nil
+                                end)
+                        end
+                end
         end
 end
 
