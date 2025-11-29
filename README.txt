@@ -1,26 +1,28 @@
 # RCPT
-## Ready Check, Pull Timer
+## Ready Check, Pull Timer & TalentCheck
 
-Initiates a ready check, waits for all players to be ready, and sends a pull timer.
+RCPT manages ready checks and pull timers and includes a built-in TalentCheck overlay to augment the ReadyCheck experience.
 
-## TalentCheck (testing)
+Installation & enablement:
+- Ensure the `RCPT` folder is in your `Interface/AddOns` directory.
+- Enable the addon in the AddOns list on the character select screen and reload the UI with `/reload` after changes.
 
-Quick testing instructions for the `TalentCheck.lua` scaffolding added to the addon:
+Testing the TalentCheck overlay (preferred via Interface Options):
+- Open `Interface -> AddOns -> RCPT` and use the **Test Ready Overlay** button to preview behavior.
 
-- Install: Ensure the `RCPT` folder is in your `Interface/AddOns` directory (it already is).
-- Enable: At the character select screen make sure `RCPT` is enabled in the AddOns list and reload UI with `/reload` after changes.
-- Manual checks from the chat window:
-	- Initialize the saved vars (optional):
-		- `/run RCPT_TalentCheck.EnsureDB()`
-	- Check durability directly and print results:
-		- `/run local isLow, lowSlots, avg = RCPT_TalentCheck.CheckLowDurability(80); print(isLow, lowSlots, avg)`
-	- Trigger the ReadyCheck handler manually (for UI testing):
-		- `/run RCPT_TalentCheck.TriggerReadyCheck()`
+Quick runtime/debug helpers (chat / macro window):
+- Show the ReadyCheck UI and play the ready-check sound:
+	- `/run RCPT_TalentCheck.ShowReadyCheckDebug()`
+- Invoke the ReadyCheck handler without a game event:
+	- `/run RCPT_TalentCheck.SimulateReadyCheckEvent()`
+- Check durability directly from Lua and print results:
+	- `/run local isLow, lowSlots, avg = RCPT_TalentCheck.CheckLowDurability(80); print(isLow, lowSlots, avg)`
 
-- In-game workflow:
-	- Join a party or raid and have the leader start a Ready Check. The addon will modify the Ready Check UI, show the loadout/spec, and (if an item is below the threshold) hide the Ready button and display "REPAIR NEEDED".
-	- If you want party notifications, enable `SendPartyChatNotification` in the addon's saved variables (via saved-vars or an in-game config you add later). If enabled the addon will send a short message to party chat with loadout and durability info.
+Behavior notes:
+- During ready checks the overlay shows your current spec and loadout, plus durability summary. If an item is below the configured threshold the overlay (or default frame) will display "REPAIR NEEDED" and disable the Ready button until durability is restored.
+- Use `Interface -> AddOns -> RCPT` to configure `MinDurabilityPercent`, toggle `ReplaceReadyCheck`, and enable party notifications.
 
-Notes:
-- Some UI changes are best-effort and wrapped in `pcall` to avoid taint/protection errors. If you see unexpected behavior, check the default UI and disable other addons that modify the Ready Check frame.
+Compatibility:
+- The addon wraps risky UI modifications in `pcall` to minimize taint. If you experience issues, try disabling other addons that also change the ReadyCheck UI.
+
 
