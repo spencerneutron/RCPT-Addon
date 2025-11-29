@@ -8,3 +8,4 @@
 config.lua
 RCPT.lua
 TalentCheck.lua
+Options.lua

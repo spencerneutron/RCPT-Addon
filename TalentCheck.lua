@@ -174,22 +174,14 @@ local addonName = "RCPT"
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 local db = RCPT_TalentCheckDB
 
-local defaults = {
-        SendPartyChatNotification = false,
-        MinDurabilityPercent = 80,
-}
-
-local function EnsureDB()
-        if not db then db = {} end
-        for k, v in pairs(defaults) do
-                if db[k] == nil then db[k] = v end
-        end
-        RCPT_TalentCheckDB = db
-end
+-- Defaults are consolidated in `config.lua` (RCPT_TalentCheckDefaults)
+-- Ensure local reference to the saved-vars table exists
+RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
+db = RCPT_TalentCheckDB
 
 -- Check durability across equipment slots 1..17
 local function CheckLowDurability(threshold)
-        threshold = threshold or defaults.MinDurabilityPercent
+        threshold = threshold or (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local numLowSlots = 0
         local totalDurability = 0
         local numSlotsWithDurability = 0
@@ -319,8 +311,8 @@ local function OnMerchantClosedRecheck(threshold, readyButton)
 end
 
 local function ReadyCheckHandler()
-        EnsureDB()
-        local threshold = db.MinDurabilityPercent or defaults.MinDurabilityPercent
+        if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+        local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
 
         -- Modify ReadyCheckFrame appearance (best-effort; don't error if globals missing)
@@ -396,7 +388,7 @@ end
 -- Event dispatcher
 frame:SetScript("OnEvent", function(self, event, ...)
         if event == "PLAYER_LOGIN" then
-                EnsureDB()
+                if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
         elseif event == "READY_CHECK" then
                 ReadyCheckHandler()
         end
@@ -409,7 +401,44 @@ frame:RegisterEvent("READY_CHECK")
 _G.RCPT_TalentCheck = {
         CheckLowDurability = CheckLowDurability,
         GetSpecAndLoadout = GetSpecAndLoadout,
-        EnsureDB = EnsureDB,
         TriggerReadyCheck = ReadyCheckHandler,
 }
 
+-- Debug helpers
+-- Show the ReadyCheckFrame and apply this addon's ReadyCheck styling without an actual ready check.
+function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
+        if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+        -- Run the handler to apply text/buttons/repair logic
+        pcall(ReadyCheckHandler)
+
+        -- Try to show the Blizzard ReadyCheckFrame if available, otherwise just show the frame object
+        pcall(function()
+                if ReadyCheckFrame_Show then
+                        ReadyCheckFrame_Show() -- Blizzard UI function if present
+                elseif ReadyCheckFrame and ReadyCheckFrame.Show then
+                        ReadyCheckFrame:Show()
+                end
+        end)
+
+        -- Ensure Yes/No buttons are visible when showing from debug
+        pcall(function()
+                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end
+                if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Show then ReadyCheckFrameNoButton:Show() end
+        end)
+
+        -- Play the ready check sound (best-effort)
+        pcall(function()
+                if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
+                        PlaySound(SOUNDKIT.READY_CHECK)
+                elseif PlaySound and SOUNDKIT and SOUNDKIT.UI_READY_CHECK then
+                        PlaySound(SOUNDKIT.UI_READY_CHECK)
+                end
+        end)
+end
+
+-- Simulate the READY_CHECK event by invoking the frame's event handler.
+-- This will call the same code path as when the game sends READY_CHECK.
+function _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
+        -- If the frame has the OnEvent script, call it with the READY_CHECK event
+        ReadyCheckHandler()
+end
