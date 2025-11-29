@@ -24,7 +24,7 @@ function RCPT_InitDefaults()
         -- Full reset or migration logic
         RCPT_Config = CopyTable(RCPT_Defaults)
         print("|cff00ccff[RCPT]|r Config updated to version", RCPT_Defaults.configVersion)
-        return
+        -- continue so we also ensure talent-check defaults are applied
     end
 
     for k, v in pairs(RCPT_Defaults) do
