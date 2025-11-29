@@ -169,6 +169,7 @@ cbParty:SetScript("OnClick", function(self)
     RCPT_TalentCheckDB.SendPartyChatNotification = self:GetChecked() and true or false
 end)
 
+
 -- Min durability slider
 local minDurSlider = CreateFrame("Slider", "RCPT_MinDurSlider", panel, "OptionsSliderTemplate")
 minDurSlider:SetWidth(220)
@@ -194,6 +195,14 @@ do
     minDurSlider.Value = fs
 end
 
+-- Replace default ReadyCheck checkbox
+local cbReplace = CreateFrame("CheckButton", "RCPT_Talent_ReplaceReadyCB", panel, "InterfaceOptionsCheckButtonTemplate")
+cbReplace.Text:SetText("Replace default Ready Check (center overlay)")
+cbReplace:SetPoint("TOPLEFT", minDurSlider, "BOTTOMLEFT", 0, -12)
+cbReplace:SetScript("OnClick", function(self)
+    RCPT_TalentCheckDB.ReplaceReadyCheck = self:GetChecked() and true or false
+end)
+
 -- Panel refresh and defaults
 function panel.refresh()
     EnsureConfigDefaults()
@@ -214,6 +223,7 @@ function panel.refresh()
     cbParty:SetChecked(not not RCPT_TalentCheckDB.SendPartyChatNotification)
     minDurSlider:SetValue(RCPT_TalentCheckDB.MinDurabilityPercent or 80)
     if minDurSlider.Value then minDurSlider.Value:SetText(tostring(RCPT_TalentCheckDB.MinDurabilityPercent or 80)) end
+    cbReplace:SetChecked(not not RCPT_TalentCheckDB.ReplaceReadyCheck)
 end
 
 function panel.default()
@@ -225,8 +235,24 @@ function panel.default()
 
     RCPT_TalentCheckDB.SendPartyChatNotification = false
     RCPT_TalentCheckDB.MinDurabilityPercent = 80
+    RCPT_TalentCheckDB.ReplaceReadyCheck = false
     panel.refresh()
 end
+
+-- Test overlay button (shows the overlay using the same handler)
+local testBtn = CreateFrame("Button", "RCPT_Talent_TestOverlay", panel, "UIPanelButtonTemplate")
+testBtn:SetSize(140, 22)
+testBtn:SetPoint("TOPLEFT", cbReplace, "TOPLEFT", 220, 0)
+testBtn:SetText("Test Ready Overlay")
+testBtn:SetScript("OnClick", function()
+    pcall(function()
+        if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.SimulateReadyCheckEvent then
+            _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
+        elseif _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.TriggerReadyCheck then
+            _G.RCPT_TalentCheck.TriggerReadyCheck()
+        end
+    end)
+end)
 
 -- Register the panel with Interface Options (try legacy API then Settings)
 if InterfaceOptions_AddCategory then

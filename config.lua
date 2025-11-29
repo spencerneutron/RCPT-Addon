@@ -13,6 +13,8 @@ RCPT_Defaults = {
 RCPT_TalentCheckDefaults = {
     SendPartyChatNotification = false,
     MinDurabilityPercent = 80,
+    -- If true, hide the default Blizzard ReadyCheckFrame and show our overlay centered
+    ReplaceReadyCheck = false,
 }
 
 function RCPT_InitDefaults()

@@ -205,6 +205,230 @@ end
 
 local frame = CreateFrame("Frame", addonName .. "TalentCheckFrame")
 
+-- Overlay UI: anchored frame that displays our custom ReadyCheck info
+local overlay = nil
+-- forward-declare GetSpecAndLoadout so overlay closures can reference it before it's defined
+local GetSpecAndLoadout
+local function CreateReadyOverlay()
+        if overlay and overlay:IsShown() then return overlay end
+        if overlay then return overlay end
+
+        overlay = CreateFrame("Frame", addonName .. "ReadyOverlay", UIParent, "BackdropTemplate")
+        overlay:SetSize(360, 88)
+        overlay:SetFrameStrata("HIGH")
+        overlay:SetBackdrop({
+                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+                tile = false,
+                edgeSize = 8,
+        })
+        overlay:SetBackdropColor(0, 0, 0, 0.7)
+        overlay:SetPoint("BOTTOM", ReadyCheckFrame or UIParent, "TOP", 0, 8)
+
+        -- Title / spec and loadout
+        overlay.specText = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        overlay.specText:SetPoint("TOPLEFT", 12, -10)
+
+        overlay.loadoutText = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        overlay.loadoutText:SetPoint("TOPLEFT", overlay.specText, "BOTTOMLEFT", 0, -6)
+
+        -- Durability text
+        overlay.durText = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        overlay.durText:SetPoint("TOPRIGHT", -12, -12)
+
+        -- Repair text (large, centered)
+        overlay.repairText = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        overlay.repairText:SetPoint("CENTER", 0, -4)
+        overlay.repairText:SetTextColor(1, 0.1, 0.1)
+        overlay.repairText:Hide()
+
+        -- Buttons: Change Talents, Ready, Not Ready
+        overlay.changeBtn = CreateFrame("Button", addonName .. "ChangeTalentsOverlay", overlay, "UIPanelButtonTemplate")
+        overlay.changeBtn:SetSize(120, 22)
+        overlay.changeBtn:SetPoint("BOTTOMLEFT", 12, 10)
+        overlay.changeBtn:SetText("Change Talents")
+        overlay.changeBtn:SetScript("OnClick", function()
+                if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
+                        pcall(PlayerSpellsUtil.TogglePlayerSpellsFrame, 2)
+                        return
+                end
+                if ToggleTalentFrame then pcall(ToggleTalentFrame) end
+        end)
+
+        overlay.readyBtn = CreateFrame("Button", addonName .. "OverlayReady", overlay, "UIPanelButtonTemplate")
+        overlay.readyBtn:SetSize(80, 22)
+        overlay.readyBtn:SetPoint("BOTTOMRIGHT", -12, 10)
+        overlay.readyBtn:SetText("Ready")
+        overlay.readyBtn:SetScript("OnClick", function()
+                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then ReadyCheckFrameYesButton:Click() elseif ReadyCheckFrameYesButton then ReadyCheckFrameYesButton:Disable(); ReadyCheckFrameYesButton:Enable() end end)
+        end)
+
+        overlay.notReadyBtn = CreateFrame("Button", addonName .. "OverlayNotReady", overlay, "UIPanelButtonTemplate")
+        overlay.notReadyBtn:SetSize(80, 22)
+        overlay.notReadyBtn:SetPoint("BOTTOMRIGHT", overlay.readyBtn, "TOPRIGHT", 0, 6)
+        overlay.notReadyBtn:SetText("Not Ready")
+        overlay.notReadyBtn:SetScript("OnClick", function()
+                pcall(function() if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Click then ReadyCheckFrameNoButton:Click() end end)
+        end)
+
+        -- Collapse toggle (non-persistent)
+        overlay.collapsed = false
+        overlay.collapseBtn = CreateFrame("Button", addonName .. "OverlayCollapse", overlay, "UIPanelButtonTemplate")
+        overlay.collapseBtn:SetSize(22, 22)
+        overlay.collapseBtn:SetPoint("TOPRIGHT", -6, -6)
+        overlay.collapseBtn:SetText("-")
+        overlay.collapseBtn:SetScript("OnClick", function(self)
+                overlay.collapsed = not overlay.collapsed
+                if overlay.collapsed then
+                        overlay:SetHeight(28)
+                        overlay.specText:Hide()
+                        overlay.loadoutText:Hide()
+                        overlay.durText:Hide()
+                        overlay.changeBtn:Hide()
+                        overlay.readyBtn:Hide()
+                        overlay.notReadyBtn:Hide()
+                        overlay.repairText:Hide()
+                        self:SetText("+")
+                else
+                        overlay:SetHeight(88)
+                        overlay.specText:Show()
+                        overlay.loadoutText:Show()
+                        overlay.durText:Show()
+                        overlay.changeBtn:Show()
+                        overlay.readyBtn:Show()
+                        overlay.notReadyBtn:Show()
+                        self:SetText("-")
+                end
+        end)
+
+        -- OnUpdate while visible to refresh dynamic info
+        overlay.updateTicker = 0
+        overlay:SetScript("OnUpdate", function(self, elapsed)
+                if not self:IsShown() then return end
+                self.updateTicker = self.updateTicker + elapsed
+                if self.updateTicker >= 0.5 then
+                        self.updateTicker = 0
+                        -- refresh durability/spec/loadout
+                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                        local isLow, numLowSlots, avgDur = CheckLowDurability(RCPT_TalentCheckDB.MinDurabilityPercent)
+                        -- update texts
+                        pcall(function()
+                                if not overlay.collapsed then
+                                        overlay.specText:SetText(specName)
+                                        overlay.loadoutText:SetText(loadoutName)
+                                        overlay.durText:SetText(string.format("Durability: %d%% (%d low)", math.floor(avgDur + 0.5), numLowSlots))
+                                end
+                                if isLow then
+                                        overlay.repairText:Show()
+                                        overlay.repairText:SetText("REPAIR NEEDED")
+                                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
+                                                ReadyCheckFrameYesButton:Disable()
+                                        end
+                                else
+                                        overlay.repairText:Hide()
+                                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
+                                                ReadyCheckFrameYesButton:Enable()
+                                        end
+                                end
+                        end)
+                end
+        end)
+
+        -- Helper to position and show overlay for a ready-check.
+        function overlay:ShowForReadyCheck(replaceDefault)
+                -- Position: centered if replacing the default; otherwise anchored above ReadyCheckFrame
+                if replaceDefault then
+                        self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                        -- try to hide the default ReadyCheckFrame so we don't duplicate UI
+                        local hid = pcall(function()
+                                if ReadyCheckFrame and ReadyCheckFrame.IsShown and ReadyCheckFrame:IsShown() then
+                                        ReadyCheckFrame:Hide()
+                                        return true
+                                end
+                                return false
+                        end)
+                        self._hidDefault = hid
+                else
+                        if ReadyCheckFrame then
+                                self:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
+                        else
+                                self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                        end
+                end
+                self:Show()
+
+                -- auto-hide after a safe timeout (Blizzard ready-check duration is short)
+                if self._autoHideTimer then
+                        self._autoHideTimer:Cancel()
+                        self._autoHideTimer = nil
+                end
+                -- Set up a watcher frame to hide the overlay when the ready check lifecycle ends.
+                if not self.watcher then
+                        local w = CreateFrame("Frame")
+                        w:SetScript("OnEvent", function(_, event, ...)
+                                -- If ready-check finished or confirmations arrive, hide overlay
+                                if event == "READY_CHECK_FINISHED" or event == "READY_CHECK_CONFIRM" then
+                                        if overlay and overlay.Hide then overlay:Hide() end
+                                end
+                        end)
+                        w:RegisterEvent("READY_CHECK_FINISHED")
+                        w:RegisterEvent("READY_CHECK_CONFIRM")
+                        self.watcher = w
+                end
+                -- safety auto-hide after 30 seconds in case events are missed
+                if C_Timer then
+                        if self._autoHideTimer then self._autoHideTimer:Cancel() self._autoHideTimer = nil end
+                        self._autoHideTimer = C_Timer.NewTicker(30, function()
+                                if overlay and overlay.Hide then overlay:Hide() end
+                                if overlay and overlay._autoHideTimer then overlay._autoHideTimer:Cancel() overlay._autoHideTimer = nil end
+                        end, 1)
+                end
+        end
+
+        -- Hook Visible state to align with ReadyCheckFrame (only when not replacing)
+        if ReadyCheckFrame then
+                ReadyCheckFrame:HookScript("OnShow", function()
+                        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
+                                -- when replacing, ReadyCheckHandler will handle overlay showing
+                                return
+                        end
+                        overlay:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
+                        overlay:Show()
+                end)
+                ReadyCheckFrame:HookScript("OnHide", function()
+                        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
+                                -- ignore default hide when we're replacing the UI
+                                return
+                        end
+                        overlay:Hide()
+                        -- re-enable yes button when hiding
+                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
+                end)
+        end
+
+        -- Ensure cleanup when overlay hides
+        overlay:SetScript("OnHide", function(self)
+                -- cancel auto-hide timer
+                if self._autoHideTimer then
+                        pcall(function() self._autoHideTimer:Cancel() end)
+                        self._autoHideTimer = nil
+                end
+                -- unregister watcher
+                if self.watcher then
+                        pcall(function() self.watcher:UnregisterAllEvents(); self.watcher:SetScript("OnEvent", nil) end)
+                        self.watcher = nil
+                end
+                -- if we hid the default ReadyCheckFrame earlier, try to restore it
+                if self._hidDefault then
+                        pcall(function() if ReadyCheckFrame and ReadyCheckFrame.Show then ReadyCheckFrame:Show() end end)
+                        self._hidDefault = nil
+                end
+        end)
+
+        overlay:Hide()
+        return overlay
+end
+
 -- Helper to safely get spec name and an available 'loadout' name
 local function GetSpecAndLoadout()
         local specName = "Unknown Spec"
@@ -245,6 +469,9 @@ local function GetSpecAndLoadout()
 
         return specName, loadoutName
 end
+
+-- Expose a simple global accessor for other code to call directly
+_G.RCPT_GetSpecAndLoadout = GetSpecAndLoadout
 
 -- Keep references to created UI elements so we don't duplicate them
 frame.changeTalentsButton = nil
@@ -315,73 +542,30 @@ local function ReadyCheckHandler()
         local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
 
-        -- Modify ReadyCheckFrame appearance (best-effort; don't error if globals missing)
-        if ReadyCheckFrame and ReadyCheckFrameText then
-                pcall(ReadyCheckFrame.SetHeight, ReadyCheckFrame, 160)
-
-                local specName, loadoutName = GetSpecAndLoadout()
-                local specText = "|cFFFFFF00" .. specName .. "|r"
-                local targetIcon = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_4:16|t"
-                local loadoutText = targetIcon .. " " .. loadoutName .. " " .. targetIcon
-
-                -- Best-effort: only set text/font if methods present
-                pcall(ReadyCheckFrameText.SetFont, ReadyCheckFrameText, "GameFontNormalLarge", 16)
-                pcall(ReadyCheckFrameText.SetText, ReadyCheckFrameText, "Current Spec: " .. specText .. "\n" .. "Current Loadout: " .. loadoutText)
-
-                if ReadyCheckFrameYesButton then
-                        pcall(ReadyCheckFrameYesButton.SetHeight, ReadyCheckFrameYesButton, 65)
-                        pcall(ReadyCheckFrameYesButton.SetText, ReadyCheckFrameYesButton, loadoutName .. "\n" .. "|cFF00FF00Ready|r")
-                end
-                if ReadyCheckFrameNoButton then
-                        pcall(ReadyCheckFrameNoButton.SetHeight, ReadyCheckFrameNoButton, 30)
-                        pcall(ReadyCheckFrameNoButton.SetText, ReadyCheckFrameNoButton, "|cFFFF0000Not Ready|r")
-                end
-
-                -- Create Change Talents button and hook hiding
-                if ReadyCheckFrameNoButton then
-                        local changeBtn = CreateChangeTalentsButton(ReadyCheckFrame, ReadyCheckFrameNoButton)
-                        ReadyCheckFrame:HookScript("OnHide", function()
-                                if changeBtn then changeBtn:Hide() end
-                        end)
-                end
-
-                if isLow then
-                        if ReadyCheckFrameYesButton then ReadyCheckFrameYesButton:Hide() end
-                        ShowRepairText(ReadyCheckFrame, ReadyCheckFrameYesButton or ReadyCheckFrame)
-
-                        -- Register MERCHANT_CLOSED handler that re-checks durability
-                        if not frame.merchantHandler then
-                                local h = CreateFrame("Frame")
-                                h:RegisterEvent("MERCHANT_CLOSED")
-                                h:SetScript("OnEvent", function()
-                                        OnMerchantClosedRecheck(threshold, ReadyCheckFrameYesButton)
-                                end)
-                                frame.merchantHandler = h
-                        end
-                else
-                        if ReadyCheckFrameYesButton then ReadyCheckFrameYesButton:Show() end
-                        HideRepairText()
-                end
-
-                -- Chat outputs
-                local activeChatFrame = SELECTED_DOCK_FRAME or DEFAULT_CHAT_FRAME
-                if activeChatFrame and activeChatFrame.AddMessage then
-                        activeChatFrame:AddMessage(string.format("Current Spec: %s", specName))
-                        activeChatFrame:AddMessage(string.format("Current Loadout: %s", loadoutName))
+        -- Ensure overlay exists and show it. We keep only the Yes-button enable/disable interaction
+        CreateReadyOverlay()
+        if overlay then
+                local replace = RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck
+                overlay:ShowForReadyCheck(replace)
+                -- update overlay contents immediately
+                pcall(function()
+                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                        overlay.specText:SetText(specName or "Unknown Spec")
+                        overlay.loadoutText:SetText(loadoutName or "Unknown Loadout")
+                        overlay.durText:SetText(string.format("Durability: %d%% (%d low)", math.floor((avgDur or 100) + 0.5), numLowSlots or 0))
                         if isLow then
-                                activeChatFrame:AddMessage(string.format("Durability: %d%%, Low Slots: %d", math.floor(avgDur + 0.5), numLowSlots))
-                        end
-                end
-
-                if db.SendPartyChatNotification then
-                        local _, loadoutName = GetSpecAndLoadout()
-                        if UnitInParty("player") or UnitInRaid("player") then
-                                pcall(SendChatMessage, "I am currently using talents: " .. (loadoutName or "Unknown"), "PARTY")
-                                if isLow then
-                                        pcall(SendChatMessage, string.format("Current Durability: %d%%, Low Slots: %d", math.floor(avgDur + 0.5), numLowSlots), "PARTY")
+                                overlay.repairText:Show()
+                                overlay.repairText:SetText("REPAIR NEEDED")
+                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
+                                        ReadyCheckFrameYesButton:Disable()
+                                end
+                        else
+                                overlay.repairText:Hide()
+                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
+                                        ReadyCheckFrameYesButton:Enable()
                                 end
                         end
-                end
+                end)
         end
 end
 
