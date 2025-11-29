@@ -235,7 +235,7 @@ function panel.default()
 
     RCPT_TalentCheckDB.SendPartyChatNotification = false
     RCPT_TalentCheckDB.MinDurabilityPercent = 80
-    RCPT_TalentCheckDB.ReplaceReadyCheck = false
+    RCPT_TalentCheckDB.ReplaceReadyCheck = true
     panel.refresh()
 end
 
