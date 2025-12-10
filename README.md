@@ -1,71 +1,58 @@
 ### [Get it on Wago](https://addons.wago.io/addons/rcpt-addon)
 
 # RCPT
-### Ready Check, Pull Timer
+### Ready Check, Pull Timer + TalentCheck
 
-**RCPT** is a lightweight command-line World of Warcraft addon that helps raid leaders and dungeon organizers run smoother encounters. It automates the process of initiating a ready check, monitoring player responses, and triggering a pull timer when everyone is confirmed ready.
+RCPT is a lightweight World of Warcraft addon for managing ready checks and pull timers, now extended with a built-in TalentCheck ReadyCheck overlay that shows your spec, loadout, and equipment durability during ready checks.
 
----
-
-## 🔧 Features
-
-- `/rcpt` triggers a **ready check**.
-  - When all players are ready, it automatically starts a **pull timer**.
-  - If not all players are ready, it will retry up to a configured number of times.
-  - Players can **cancel the pull timer** by typing configured keywords in party or raid chat (e.g. "stop", "wait").
-
-- Customize behaviors with easy slash commands.
+The addon still includes legacy slash commands for backwards compatibility, but configuration and testing are now supported via the Blizzard Interface Options: `Interface -> AddOns -> RCPT` (preferred).
 
 ---
 
-## 💬 Slash Command Reference
+## 🔧 New: TalentCheck ReadyCheck Overlay
 
-| Command                         | Description |
-|----------------------------------|-------------|
-| `/rcpt`                          | Starts the ready check → pull timer sequence |
-| `/rcpt help`                     | Prints current configuration and usage info |
-| `/rcpt set <key> <value>`       | Sets config value (`pullDuration`, `retryTimeout`, `maxRetries`) |
-| `/rcpt addkeyword <word>`       | Adds a cancel keyword (up to 10 total) |
-| `/rcpt reset`                   | Resets configuration to defaults |
-| `/rcpt quiet`                   | Toggles the debugging text on/off |
+- Shows your current specialization and loadout name during Ready Checks.
+- Displays overall durability and how many equipment slots are below the configured threshold.
+- If an item is below the threshold, the overlay will display a prominent "REPAIR NEEDED" message and (optionally) disable the Ready button until durability is restored.
+- Includes a "Change Talents" button (opens the talent UI) and easy-to-use Ready / Not Ready controls.
+- Optionally replaces the default Blizzard ReadyCheck frame. Toggle this behavior in `Interface -> AddOns -> RCPT`.
 
----
-
-## ⚙️ Configurable Options
-
-| Config Key     | Description                             | Default |
-|----------------|-----------------------------------------|---------|
-| `pullDuration` | Seconds for pull countdown              | `10`    |
-| `retryTimeout` | Seconds to wait before retrying ready   | `15`    |
-| `maxRetries`   | Max retries if players aren't ready     | `2`     |
-| `cancelKeywords` | Chat triggers to cancel pull timer    | `stop`, `wait`, `hold` |
-
-To update a value:
-
-`/rcpt set pullDuration 8`
-
-`/rcpt addkeyword abort`
+These features are an evolution of a WeakAura I previously maintained (original reference: https://wago.io/CBDoKxZdQ) and have been reworked into an addon-friendly implementation.
 
 ---
 
-## 🔄 Resetting Config
+## ⚙️ Configuration (preferred)
 
-To revert to default settings:
+- Open `Interface -> AddOns -> RCPT` to change TalentCheck options:
+  - `ReplaceReadyCheck`: when enabled, the addon centers a compact overlay and hides the default ReadyCheck frame.
+  - `MinDurabilityPercent`: durability threshold that triggers the "REPAIR NEEDED" behavior.
+  - `SendPartyChatNotification`: whether to send a short party message with loadout/durability information.
 
-`/rcpt reset`
+Configuration changes made in the Interface Options persist across reloads.
 
-This will clear saved variables and reload your UI.
+---
+
+## 🧪 Quick Testing & Debugging
+
+- Use the in-panel **Test Ready Overlay** button in `Interface -> AddOns -> RCPT` to preview the ReadyCheck overlay.
+- Runtime helper functions available for testing from the chat / macro window:
+  - `/run RCPT_TalentCheck.ShowReadyCheckDebug()` — show the ReadyCheck UI and play the ready-check sound (best-effort).
+  - `/run RCPT_TalentCheck.SimulateReadyCheckEvent()` — invokes the ReadyCheck handler without triggering the Blizzard event.
+  - `/run local isLow, lowSlots, avg = RCPT_TalentCheck.CheckLowDurability(80); print(isLow, lowSlots, avg)` — quick durability check from Lua.
+
+Legacy slash commands (still available): `/rcpt` and related subcommands. These remain supported but are no longer the recommended configuration workflow.
 
 ---
 
 ## 📦 Installation
 
-1. Download the latest from [Wago](https://addons.wago.io/developers/projects/rcpt-addon) or [GitHub Releases](https://github.com/spencerneutron/RCPT-Addon/releases).
+1. Download the latest from the GitHub Releases page.
 2. Extract and place the `RCPT/` folder into your WoW AddOns directory.
 
 ---
 
-## 🧪 Notes
+## Credits & Notes
 
-- Requires leader or assistant permissions in group to run `/readycheck` and `/pull` equivalents.
-- Compatible with Blizzard’s built-in countdown system (no DBM or BigWigs required).
+- TalentCheck features adapted from a WeakAura previously maintained by the addon author (https://wago.io/CBDoKxZdQ).
+- The addon avoids protected UI calls and wraps best-effort changes in `pcall` to reduce taint risk. If you notice issues, try disabling other addons that modify the ReadyCheck frame.
+
