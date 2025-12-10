@@ -1,3 +1,5 @@
+### [Get it on Wago](https://addons.wago.io/addons/rcpt-addon)
+
 # RCPT
 ### Ready Check, Pull Timer
 
