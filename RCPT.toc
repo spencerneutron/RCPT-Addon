@@ -2,7 +2,7 @@
 ## Title: RCPT - Ready Check Pull Timer
 ## Notes: Automatically handles ready check → pull flow
 ## Author: boolbog
-## Version: 1.0
+## Version: 1.1.4
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
 
 config.lua
