@@ -1,11 +1,10 @@
 ## Interface: 120000
-## Title: RCPT - Ready Check Pull Timer
-## Notes: Automatically handles ready check → pull flow
+## Title: RCPT - Bootstrap
+## Notes: Lightweight bootstrap that conditionally loads RCPT-Main
 ## Author: boolbog
 ## Version: 1.0
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
 
 config.lua
-RCPT.lua
-TalentCheck.lua
 Options.lua
+RCPT-Bootstrap.lua

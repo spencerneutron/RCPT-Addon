@@ -1,0 +1,7 @@
+## Interface: 120000
+## Title: RCPT - Main
+## Notes: Main addon, loaded on-demand by the bootstrap
+## LoadOnDemand: 1
+## OptionalDeps: RCPT-TalentCheck
+
+RCPT-Main.lua

@@ -1,0 +1,7 @@
+## Interface: 120000
+## Title: RCPT - TalentCheck Module
+## Notes: Optional talent/durability UI module for RCPT
+## LoadOnDemand: 1
+## OptionalDeps: RCPT-Main
+
+RCPT-TalentCheck.lua
