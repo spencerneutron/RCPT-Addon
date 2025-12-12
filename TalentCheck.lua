@@ -396,23 +396,6 @@ local function CreateReadyOverlay()
                         overlay:Show()
                 end)
 
-                -- Send party/raid notification if enabled in TalentCheck DB
-                if RCPT_TalentCheckDB and RCPT_TalentCheckDB.SendPartyChatNotification then
-                        pcall(function()
-                                local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
-                                local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
-                                local isLow_local, numLowSlots_local, avgDur_local = CheckLowDurability(threshold)
-                                local channel = nil
-                                if IsInRaid and IsInRaid() then channel = "RAID"
-                                elseif IsInGroup and IsInGroup() then channel = "PARTY" end
-                                if channel then
-                                        SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), channel)
-                                        if isLow_local then
-                                                SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur_local or 100) + 0.5), numLowSlots_local or 0), channel)
-                                        end
-                                end
-                        end)
-                end
                 ReadyCheckFrame:HookScript("OnHide", function()
                         if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
                                 -- ignore default hide when we're replacing the UI
@@ -559,6 +542,23 @@ local function ReadyCheckHandler()
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
         local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
+
+        -- Send party/raid notification if enabled (do this here so it runs whether
+        -- we're replacing the default ReadyCheckFrame or anchoring to it)
+        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.SendPartyChatNotification then
+                pcall(function()
+                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                        local channel = nil
+                        if IsInRaid and IsInRaid() then channel = "RAID"
+                        elseif IsInGroup and IsInGroup() then channel = "PARTY" end
+                        if channel then
+                                SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), channel)
+                                if isLow then
+                                        SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), channel)
+                                end
+                        end
+                end)
+        end
 
         -- Ensure overlay exists and show it. We keep only the Yes-button enable/disable interaction
         CreateReadyOverlay()
