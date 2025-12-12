@@ -8,11 +8,8 @@ local initiatedByMe = false
 RCPT_InitDefaults()
 
 local function Debug(msg)
-    if RCPT_Config.debug then
-        print("|cff00ccff[RCPT]|r " .. msg)
-    else
-        print("no debug")
-    end
+    if not (RCPT_Config and RCPT_Config.debug) then return end
+    print("|cff00ccff[RCPT]|r " .. msg)
 end
 
 local function StartPullTimer(seconds)
