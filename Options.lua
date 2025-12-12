@@ -145,7 +145,13 @@ local kwBox = CreateFrame("EditBox", "RCPT_CancelKeywordsBox", panel, "InputBoxT
 kwBox:SetSize(260, 22)
 kwBox:SetPoint("TOPLEFT", kwLabel, "BOTTOMLEFT", 0, -6)
 kwBox:SetAutoFocus(false)
+-- in case the user presses Enter, just clear focus to trigger the save handler
 kwBox:SetScript("OnEnterPressed", function(self)
+    self:ClearFocus()
+end)
+
+-- save keywords
+kwBox:SetScript("OnEditFocusLost", function(self)
     local text = self:GetText() or ""
     local t = {}
     for word in text:gmatch("%s*([^,]+)%s*") do
@@ -153,7 +159,6 @@ kwBox:SetScript("OnEnterPressed", function(self)
         if word ~= "" then table.insert(t, word) end
     end
     RCPT_Config.cancelKeywords = t
-    self:ClearFocus()
 end)
 
 -- TalentCheck group title
