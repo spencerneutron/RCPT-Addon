@@ -366,9 +366,38 @@ local function CreateReadyOverlay()
                 if not self.watcher then
                         local w = CreateFrame("Frame")
                         w:SetScript("OnEvent", function(_, event, ...)
-                                -- If ready-check finished or confirmations arrive, hide overlay
-                                if event == "READY_CHECK_FINISHED" or event == "READY_CHECK_CONFIRM" then
+                                if event == "READY_CHECK_FINISHED" then
                                         if overlay and overlay.Hide then overlay:Hide() end
+                                        return
+                                end
+
+                                if event == "READY_CHECK_CONFIRM" then
+                                        -- READY_CHECK_CONFIRM may come from any unit. Only act
+                                        -- when the confirmation belongs to the player.
+                                        local unitOrName = select(1, ...)
+                                        local isPlayerConfirm = false
+
+                                        -- Try unit-token comparison first (UnitIsUnit handles 'player', 'party1', 'raid1', etc.)
+                                        local ok1, res1 = pcall(function()
+                                                if UnitIsUnit then return UnitIsUnit(unitOrName, "player") end
+                                                return false
+                                        end)
+                                        if ok1 and res1 then isPlayerConfirm = true end
+
+                                        -- If that didn't detect it, compare names as a fallback.  Not sure which will work in Midnight by launch
+                                        if not isPlayerConfirm then
+                                                local ok2, pname = pcall(UnitName, "player")
+                                                if ok2 and pname and unitOrName == pname then
+                                                        isPlayerConfirm = true
+                                                end
+                                        end
+
+                                        if isPlayerConfirm then
+                                                -- For now, behave like a teardown for the player's own confirm
+                                                -- TODO:: Consider transforming into a compact frame that still displays only the durability status and spec/loadout (until READY_CHECK_FINISHED)
+                                                --        as well as a check or cross indicator for the player's own ready state
+                                                if overlay and overlay.Hide then overlay:Hide() end
+                                        end
                                 end
                         end)
                         w:RegisterEvent("READY_CHECK_FINISHED")
