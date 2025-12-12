@@ -197,7 +197,7 @@ end
 
 -- Replace default ReadyCheck checkbox
 local cbReplace = CreateFrame("CheckButton", "RCPT_Talent_ReplaceReadyCB", panel, "InterfaceOptionsCheckButtonTemplate")
-cbReplace.Text:SetText("Replace default Ready Check (center overlay)")
+cbReplace.Text:SetText("Replace default Ready Check")
 cbReplace:SetPoint("TOPLEFT", minDurSlider, "BOTTOMLEFT", 0, -12)
 cbReplace:SetScript("OnClick", function(self)
     RCPT_TalentCheckDB.ReplaceReadyCheck = self:GetChecked() and true or false
@@ -243,7 +243,7 @@ end
 local testBtn = CreateFrame("Button", "RCPT_Talent_TestOverlay", panel, "UIPanelButtonTemplate")
 testBtn:SetSize(140, 22)
 testBtn:SetPoint("TOPLEFT", cbReplace, "TOPLEFT", 220, 0)
-testBtn:SetText("Test Ready Overlay")
+testBtn:SetText("Test Ready Check")
 testBtn:SetScript("OnClick", function()
     pcall(function()
         if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.SimulateReadyCheckEvent then

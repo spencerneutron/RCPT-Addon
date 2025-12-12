@@ -4,9 +4,9 @@ RCPT_Defaults = {
     pullDuration = 10,
     cancelKeywords = { "stop", "wait", "hold" },
     retryTimeout = 15,
-    maxRetries = 2,
-    debug = true,
-    configVersion = 1
+    maxRetries = 1,
+    debug = false,
+    configVersion = 2
 }
 
 -- TalentCheck defaults consolidated here so all addon defaults live in one file
