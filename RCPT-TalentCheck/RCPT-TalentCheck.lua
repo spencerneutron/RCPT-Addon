@@ -1,11 +1,17 @@
--- TalentCheck moved into RCPT-TalentCheck/RCPT-TalentCheck.lua
-print("[RCPT] Top-level TalentCheck.lua is now a shim. Use RCPT-TalentCheck module.")
-    -- SendPartyChatNotification (boolean) - Send party chat notification with current loadout name
-    -- MinDurabilityPercent (number) - Minimum durability percentage threshold to trigger "REPAIR NEEDED" display
-        -- default 80, min 5 max 100 step 5
+-- Full TalentCheck module (migrated from root `TalentCheck.lua`)
 
+-- Documenting old WeakAura behavior:
 
--- End of old WeakAura behavior documentation
+-- Trigger: Event -> READY_CHECK
+-- Condition: None
+-- Action:
+--  OnInit:
+
+        -- aura_env.CheckLowDurability = function (threshold)
+        --     local numLowSlots = 0
+        --     local totalDurability = 0
+        --     local numSlotsWithDurability = 0
+        --     ...
 
 -- Scaffolding implementation: convert documented WeakAura behavior
 -- into addon-style behavior. This file registers a READY_CHECK
@@ -14,16 +20,12 @@ print("[RCPT] Top-level TalentCheck.lua is now a shim. Use RCPT-TalentCheck modu
 
 local addonName = "RCPT"
 
--- Saved variables (uses global saved var `RCPT_TalentCheckDB`)
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 local db = RCPT_TalentCheckDB
 
--- Defaults are consolidated in `config.lua` (RCPT_TalentCheckDefaults)
--- Ensure local reference to the saved-vars table exists
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 db = RCPT_TalentCheckDB
 
--- Check durability across equipment slots 1..17
 local function CheckLowDurability(threshold)
         threshold = threshold or (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local numLowSlots = 0
@@ -49,9 +51,7 @@ end
 
 local frame = CreateFrame("Frame", addonName .. "TalentCheckFrame")
 
--- Overlay UI: anchored frame that displays our custom ReadyCheck info
 local overlay = nil
--- forward-declare GetSpecAndLoadout so overlay closures can reference it before it's defined
 local GetSpecAndLoadout
 local function CreateReadyOverlay()
         if overlay and overlay:IsShown() then return overlay end
@@ -69,24 +69,20 @@ local function CreateReadyOverlay()
         overlay:SetBackdropColor(0, 0, 0, 0.7)
         overlay:SetPoint("BOTTOM", ReadyCheckFrame or UIParent, "TOP", 0, 8)
 
-        -- Title / spec and loadout
         overlay.specText = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         overlay.specText:SetPoint("TOPLEFT", 12, -10)
 
         overlay.loadoutText = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         overlay.loadoutText:SetPoint("TOPLEFT", overlay.specText, "BOTTOMLEFT", 0, -6)
 
-        -- Durability text (leave space at top-right for the collapse button)
         overlay.durText = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         overlay.durText:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", -36, -12)
 
-        -- Repair text (large, centered)
         overlay.repairText = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         overlay.repairText:SetPoint("CENTER", 0, -4)
         overlay.repairText:SetTextColor(1, 0.1, 0.1)
         overlay.repairText:Hide()
 
-        -- Buttons: Change Talents, Ready, Not Ready
         overlay.changeBtn = CreateFrame("Button", addonName .. "ChangeTalentsOverlay", overlay, "UIPanelButtonTemplate")
         overlay.changeBtn:SetSize(120, 22)
         overlay.changeBtn:SetPoint("BOTTOMLEFT", 12, 10)
@@ -115,7 +111,6 @@ local function CreateReadyOverlay()
                 pcall(function() if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Click then ReadyCheckFrameNoButton:Click() end end)
         end)
 
-        -- Collapse toggle (non-persistent)
         overlay.collapsed = false
         overlay.collapseBtn = CreateFrame("Button", addonName .. "OverlayCollapse", overlay, "UIPanelButtonTemplate")
         overlay.collapseBtn:SetSize(22, 22)
@@ -145,17 +140,14 @@ local function CreateReadyOverlay()
                 end
         end)
 
-        -- OnUpdate while visible to refresh dynamic info
         overlay.updateTicker = 0
         overlay:SetScript("OnUpdate", function(self, elapsed)
                 if not self:IsShown() then return end
                 self.updateTicker = self.updateTicker + elapsed
                 if self.updateTicker >= 0.5 then
                         self.updateTicker = 0
-                        -- refresh durability/spec/loadout
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         local isLow, numLowSlots, avgDur = CheckLowDurability(RCPT_TalentCheckDB.MinDurabilityPercent)
-                        -- update texts
                         pcall(function()
                                                 if not overlay.collapsed then
                                                         overlay.specText:SetText(specName)
@@ -178,12 +170,9 @@ local function CreateReadyOverlay()
                 end
         end)
 
-        -- Helper to position and show overlay for a ready-check.
         function overlay:ShowForReadyCheck(replaceDefault)
-                -- Position: centered if replacing the default; otherwise anchored above ReadyCheckFrame
                 if replaceDefault then
                         self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                        -- try to hide the default ReadyCheckFrame so we don't duplicate UI
                         local hid = pcall(function()
                                 if ReadyCheckFrame and ReadyCheckFrame.IsShown and ReadyCheckFrame:IsShown() then
                                         ReadyCheckFrame:Hide()
@@ -201,12 +190,10 @@ local function CreateReadyOverlay()
                 end
                 self:Show()
 
-                -- auto-hide after a safe timeout (Blizzard ready-check duration is short)
                 if self._autoHideTimer then
                         self._autoHideTimer:Cancel()
                         self._autoHideTimer = nil
                 end
-                -- Set up a watcher frame to hide the overlay when the ready check lifecycle ends.
                 if not self.watcher then
                         local w = CreateFrame("Frame")
                         w:SetScript("OnEvent", function(_, event, ...)
@@ -216,19 +203,15 @@ local function CreateReadyOverlay()
                                 end
 
                                 if event == "READY_CHECK_CONFIRM" then
-                                        -- READY_CHECK_CONFIRM may come from any unit. Only act
-                                        -- when the confirmation belongs to the player.
                                         local unitOrName = select(1, ...)
                                         local isPlayerConfirm = false
 
-                                        -- Try unit-token comparison first (UnitIsUnit handles 'player', 'party1', 'raid1', etc.)
                                         local ok1, res1 = pcall(function()
                                                 if UnitIsUnit then return UnitIsUnit(unitOrName, "player") end
                                                 return false
                                         end)
                                         if ok1 and res1 then isPlayerConfirm = true end
 
-                                        -- If that didn't detect it, compare names as a fallback.  Not sure which will work in Midnight by launch
                                         if not isPlayerConfirm then
                                                 local ok2, pname = pcall(UnitName, "player")
                                                 if ok2 and pname and unitOrName == pname then
@@ -237,9 +220,6 @@ local function CreateReadyOverlay()
                                         end
 
                                         if isPlayerConfirm then
-                                                -- For now, behave like a teardown for the player's own confirm
-                                                -- TODO:: Consider transforming into a compact frame that still displays only the durability status and spec/loadout (until READY_CHECK_FINISHED)
-                                                --        as well as a check or cross indicator for the player's own ready state
                                                 if overlay and overlay.Hide then overlay:Hide() end
                                         end
                                 end
@@ -248,7 +228,6 @@ local function CreateReadyOverlay()
                         w:RegisterEvent("READY_CHECK_CONFIRM")
                         self.watcher = w
                 end
-                -- safety auto-hide after 30 seconds in case events are missed
                 if C_Timer then
                         if self._autoHideTimer then self._autoHideTimer:Cancel() self._autoHideTimer = nil end
                         self._autoHideTimer = C_Timer.NewTicker(30, function()
@@ -258,11 +237,9 @@ local function CreateReadyOverlay()
                 end
         end
 
-        -- Hook Visible state to align with ReadyCheckFrame (only when not replacing)
         if ReadyCheckFrame then
                 ReadyCheckFrame:HookScript("OnShow", function()
                         if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
-                                -- when replacing, ReadyCheckHandler will handle overlay showing
                                 return
                         end
                         overlay:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
@@ -271,28 +248,22 @@ local function CreateReadyOverlay()
 
                 ReadyCheckFrame:HookScript("OnHide", function()
                         if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
-                                -- ignore default hide when we're replacing the UI
                                 return
                         end
                         overlay:Hide()
-                        -- re-enable yes button when hiding
                         pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
                 end)
         end
 
-        -- Ensure cleanup when overlay hides
         overlay:SetScript("OnHide", function(self)
-                -- cancel auto-hide timer
                 if self._autoHideTimer then
                         pcall(function() self._autoHideTimer:Cancel() end)
                         self._autoHideTimer = nil
                 end
-                -- unregister watcher
                 if self.watcher then
                         pcall(function() self.watcher:UnregisterAllEvents(); self.watcher:SetScript("OnEvent", nil) end)
                         self.watcher = nil
                 end
-                -- if we hid the default ReadyCheckFrame earlier, try to restore it
                 if self._hidDefault then
                         pcall(function() if ReadyCheckFrame and ReadyCheckFrame.Show then ReadyCheckFrame:Show() end end)
                         self._hidDefault = nil
@@ -303,7 +274,6 @@ local function CreateReadyOverlay()
         return overlay
 end
 
--- Helper to safely get spec name and an available 'loadout' name
 local function GetSpecAndLoadout()
         local specName = "Unknown Spec"
         local loadoutName = "Unknown Loadout"
@@ -314,7 +284,6 @@ local function GetSpecAndLoadout()
                 if name and name ~= "" then specName = name end
         end
 
-        -- Try new talent APIs for loadout name when available
         local got = false
         if PlayerUtil and PlayerUtil.GetCurrentSpecID then
                 local ok, specID = pcall(PlayerUtil.GetCurrentSpecID)
@@ -330,7 +299,6 @@ local function GetSpecAndLoadout()
                 end
         end
 
-        -- Fallback to saved talent loadout name from talent APIs (best-effort)
         if not got and C_ClassTalents and C_ClassTalents.GetLastSelectedSavedConfigID then
                 local ok, configID = pcall(C_ClassTalents.GetLastSelectedSavedConfigID, nil)
                 if ok and configID and C_Traits and C_Traits.GetConfigInfo then
@@ -344,10 +312,8 @@ local function GetSpecAndLoadout()
         return specName, loadoutName
 end
 
--- Expose a simple global accessor for other code to call directly
 _G.RCPT_GetSpecAndLoadout = GetSpecAndLoadout
 
--- Keep references to created UI elements so we don't duplicate them
 frame.changeTalentsButton = nil
 frame.repairText = nil
 frame.merchantHandler = nil
@@ -360,7 +326,6 @@ local function CreateChangeTalentsButton(parent, referenceButton)
                 btn:SetPoint("BOTTOM", referenceButton, "TOP", 0, 5)
                 btn:SetText("Change Talents")
                 btn:SetScript("OnClick", function()
-                        -- Try modern API, fall back gracefully
                         if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
                                 pcall(PlayerSpellsUtil.TogglePlayerSpellsFrame, 2)
                                 return
@@ -369,7 +334,6 @@ local function CreateChangeTalentsButton(parent, referenceButton)
                                 pcall(ToggleTalentFrame)
                                 return
                         end
-                        -- As last resort, try to open PlayerTalentFrame if present
                         if PlayerTalentFrame and ShowUIPanel then
                                 ShowUIPanel(PlayerTalentFrame)
                         end
@@ -398,7 +362,6 @@ local function HideRepairText()
 end
 
 local function OnMerchantClosedRecheck(threshold, readyButton)
-        -- Re-check durability when merchant closed and restore UI if repaired
         local isLow = CheckLowDurability(threshold)
         if not isLow then
                 if readyButton then readyButton:Show() end
@@ -416,8 +379,6 @@ local function ReadyCheckHandler()
         local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
 
-        -- Send party/raid notification if enabled (do this here so it runs whether
-        -- we're replacing the default ReadyCheckFrame or anchoring to it)
         if RCPT_TalentCheckDB and RCPT_TalentCheckDB.SendPartyChatNotification then
                 pcall(function()
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
@@ -433,12 +394,10 @@ local function ReadyCheckHandler()
                 end)
         end
 
-        -- Ensure overlay exists and show it. We keep only the Yes-button enable/disable interaction
         CreateReadyOverlay()
         if overlay then
                 local replace = RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck
                 overlay:ShowForReadyCheck(replace)
-                -- update overlay contents immediately
                 pcall(function()
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         overlay.specText:SetText(specName or "Unknown Spec")
@@ -458,22 +417,17 @@ local function ReadyCheckHandler()
                         end
                 end)
 
-                -- Use legacy helpers for the non-overlay flow and for merchant re-checks
                 if isLow then
                         if not replace then
-                                -- attach a Change Talents button to the default ReadyCheckFrame
                                 if ReadyCheckFrame and ReadyCheckFrameNoButton then
                                         pcall(CreateChangeTalentsButton, ReadyCheckFrame, ReadyCheckFrameNoButton)
                                 end
-                                -- hide the default Yes button and show repair text on the default frame
                                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Hide then ReadyCheckFrameYesButton:Hide() end end)
                                 pcall(ShowRepairText, ReadyCheckFrame, ReadyCheckFrameYesButton)
                         else
-                                -- overlay replacing default: ensure default yes button is disabled
                                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
                         end
 
-                        -- register a MERCHANT_CLOSED watcher to re-check durability when the vendor closes
                         if not frame.merchantHandler then
                                 local h = CreateFrame("Frame")
                                 h:RegisterEvent("MERCHANT_CLOSED")
@@ -483,12 +437,10 @@ local function ReadyCheckHandler()
                                 frame.merchantHandler = h
                         end
                 else
-                        -- not low: restore default UI and cleanup any merchant handler
                         if not (RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck) then
                                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end end)
                                 pcall(HideRepairText)
                         else
-                                -- overlay path: ensure overlay repair text already hidden, but also attempt to restore default yes
                                 pcall(HideRepairText)
                                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
                         end
@@ -503,7 +455,6 @@ local function ReadyCheckHandler()
         end
 end
 
--- Event dispatcher
 frame:SetScript("OnEvent", function(self, event, ...)
         if event == "PLAYER_LOGIN" then
                 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
@@ -515,36 +466,26 @@ end)
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("READY_CHECK")
 
--- Expose some helpers for interactive testing in-game
 _G.RCPT_TalentCheck = {
         CheckLowDurability = CheckLowDurability,
         GetSpecAndLoadout = GetSpecAndLoadout,
         TriggerReadyCheck = ReadyCheckHandler,
 }
 
--- Debug helpers
--- Show the ReadyCheckFrame and apply this addon's ReadyCheck styling without an actual ready check.
 function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
-        -- Run the handler to apply text/buttons/repair logic
         pcall(ReadyCheckHandler)
-
-        -- Try to show the Blizzard ReadyCheckFrame if available, otherwise just show the frame object
         pcall(function()
                 if ReadyCheckFrame_Show then
-                        ReadyCheckFrame_Show() -- Blizzard UI function if present
+                        ReadyCheckFrame_Show()
                 elseif ReadyCheckFrame and ReadyCheckFrame.Show then
                         ReadyCheckFrame:Show()
                 end
         end)
-
-        -- Ensure Yes/No buttons are visible when showing from debug
         pcall(function()
                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end
                 if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Show then ReadyCheckFrameNoButton:Show() end
         end)
-
-        -- Play the ready check sound (best-effort)
         pcall(function()
                 if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
                         PlaySound(SOUNDKIT.READY_CHECK)
@@ -554,9 +495,20 @@ function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
         end)
 end
 
--- Simulate the READY_CHECK event by invoking the frame's event handler.
--- This will call the same code path as when the game sends READY_CHECK.
 function _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
-        -- If the frame has the OnEvent script, call it with the READY_CHECK event
         ReadyCheckHandler()
 end
+
+local function TalentTeardown()
+    if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.HideOverlay then
+        pcall(_G.RCPT_TalentCheck.HideOverlay)
+    end
+    frame:UnregisterAllEvents()
+    frame:SetScript("OnEvent", nil)
+    if _G.RCPT_TalentCheck then
+        _G.RCPT_TalentCheck = nil
+    end
+    print("[RCPT] TalentCheck module torn down.")
+end
+
+_G.RCPT_TalentTeardown = TalentTeardown
