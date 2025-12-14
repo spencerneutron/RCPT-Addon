@@ -1,165 +1,196 @@
--- RCPT Options panel
--- Presents basic controls for RCPT_Config and TalentCheck settings
--- RCPT Options panel (builder-backed)
-local ADDON = "RCPT"
+-- RCPT Options module
+-- Exposes Options.Init(addon) and registers with Addon registry when available
 
--- Saved variables (ensure exist)
-RCPT_Config = RCPT_Config or {}
-RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
+local Options = {}
 
--- Defaults
-local function EnsureConfigDefaults()
-    if RCPT_InitDefaults then
-        pcall(RCPT_InitDefaults)
+function Options.Init(addon)
+    local Addon = addon or _G.RCPT
+
+    -- DB aliases (use Addon aliases when available, fall back to globals)
+    local DB, TDB
+    local function RefreshDBs()
+        DB = (Addon and Addon.db) or RCPT_Config or {}
+        TDB = (Addon and Addon.talentDB) or RCPT_TalentCheckDB or {}
+    end
+    RefreshDBs()
+
+    local function EnsureConfigDefaults()
+        if Addon and Addon.EnsureDefaults then
+            pcall(function() Addon:EnsureDefaults() end)
+            RefreshDBs()
+            return
+        end
+        if RCPT_InitDefaults then
+            pcall(RCPT_InitDefaults)
+            RefreshDBs()
+            return
+        end
+        DB.pullDuration = DB.pullDuration or 10
+        DB.retryTimeout = DB.retryTimeout or 15
+        DB.maxRetries = DB.maxRetries or 2
+        DB.debug = DB.debug == nil and true or DB.debug
+        DB.cancelKeywords = DB.cancelKeywords or { "stop", "wait", "hold" }
+        DB.maxRequiredGroup = DB.maxRequiredGroup or 4
+    end
+
+    local function EnsureTalentDefaults()
+        if Addon and Addon.EnsureDefaults then
+            pcall(function() Addon:EnsureDefaults() end)
+            RefreshDBs()
+            return
+        end
+        if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.EnsureDB then
+            pcall(_G.RCPT_TalentCheck.EnsureDB)
+            RefreshDBs()
+            return
+        end
+        TDB.SendPartyChatNotification = TDB.SendPartyChatNotification == nil and false or TDB.SendPartyChatNotification
+        TDB.MinDurabilityPercent = TDB.MinDurabilityPercent or 80
+        TDB.ReplaceReadyCheck = TDB.ReplaceReadyCheck == nil and true or TDB.ReplaceReadyCheck
+    end
+
+    -- If panel already exists, refresh and return
+    if _G["RCPTOptionsPanel"] then
+        EnsureConfigDefaults()
+        EnsureTalentDefaults()
+        if _G["RCPTOptionsPanel"].refresh then pcall(_G["RCPTOptionsPanel"].refresh) end
         return
     end
-    RCPT_Config.pullDuration = RCPT_Config.pullDuration or 10
-    RCPT_Config.retryTimeout = RCPT_Config.retryTimeout or 15
-    RCPT_Config.maxRetries = RCPT_Config.maxRetries or 2
-    RCPT_Config.debug = RCPT_Config.debug == nil and true or RCPT_Config.debug
-    RCPT_Config.cancelKeywords = RCPT_Config.cancelKeywords or { "stop", "wait", "hold" }
-    RCPT_Config.maxRequiredGroup = RCPT_Config.maxRequiredGroup or 4
-end
 
-local function EnsureTalentDefaults()
-    if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.EnsureDB then
-        pcall(_G.RCPT_TalentCheck.EnsureDB)
-        return
-    end
-    RCPT_TalentCheckDB.SendPartyChatNotification = RCPT_TalentCheckDB.SendPartyChatNotification == nil and false or RCPT_TalentCheckDB.SendPartyChatNotification
-    RCPT_TalentCheckDB.MinDurabilityPercent = RCPT_TalentCheckDB.MinDurabilityPercent or 80
-    RCPT_TalentCheckDB.ReplaceReadyCheck = RCPT_TalentCheckDB.ReplaceReadyCheck == nil and true or RCPT_TalentCheckDB.ReplaceReadyCheck
-end
-
-EnsureConfigDefaults()
-EnsureTalentDefaults()
-
--- Use global builder exported by OptionsBuilder.lua
-local Builder = _G.RCPT_OptionsBuilder
-local b = Builder.New("RCPTOptionsPanel", UIParent, {leftX = 16, rightX = 300, startY = -60, width = 220})
-
-b.panel.name = "RCPT"
-b:AddTitle("RCPT Options")
-b:AddSubtitle("General settings for RCPT addon.")
-
--- Group general settings under a section header
-b:AddSection("General")
-
-local cbDebug = b:AddCheck("RCPT_DebugCB", {
-    label = "Enable debug logging",
-    get = function() return RCPT_Config.debug end,
-    set = function(v) RCPT_Config.debug = v end,
-})
-
-local pullSlider = b:AddSlider("RCPT_PullDurationSlider", {
-    min = 1, max = 60, step = 1, label = "Pull timer duration (sec)",
-    get = function() return RCPT_Config.pullDuration end,
-    set = function(v) RCPT_Config.pullDuration = v end,
-})
-
-local retrySlider = b:AddSlider("RCPT_RetryTimeoutSlider", {
-    min = 1, max = 120, step = 1, label = "Retry timeout (sec)",
-    get = function() return RCPT_Config.retryTimeout end,
-    set = function(v) RCPT_Config.retryTimeout = v end,
-})
-
-local maxRetriesSlider = b:AddSlider("RCPT_MaxRetriesSlider", {
-    min = 0, max = 10, step = 1, label = "Max retries",
-    get = function() return RCPT_Config.maxRetries end,
-    set = function(v) RCPT_Config.maxRetries = v end,
-})
-
-local maxGroupSlider = b:AddSlider("RCPT_MaxRequiredGroupSlider", {
-    min = 0, max = 8, step = 1, label = "Only Check Raid Group 1 through: (0 = all)",
-    get = function() return RCPT_Config.maxRequiredGroup end,
-    set = function(v) RCPT_Config.maxRequiredGroup = v end,
-})
-
-local kwBox = b:AddEditBox("RCPT_CancelKeywordsBox", {
-    width = 260,
-    get = function() return table.concat(RCPT_Config.cancelKeywords or {}, ", ") end,
-    onEnter = true,
-    onSave = function(text)
-        local t = {}
-        for word in text:gmatch("%s*([^,]+)%s*") do
-            word = word:gsub("^%s+", ""):gsub("%s+$", "")
-            if word ~= "" then table.insert(t, word) end
-        end
-        RCPT_Config.cancelKeywords = t
-    end,
-})
-
--- TalentCheck section (sub-title)
--- TalentCheck section
-b:AddSection("TalentCheck settings")
-
-local cbParty = b:AddCheck("RCPT_Talent_SendPartyCB", {
-    label = "Send loadout notification to party",
-    get = function() return RCPT_TalentCheckDB.SendPartyChatNotification end,
-    set = function(v) RCPT_TalentCheckDB.SendPartyChatNotification = v end,
-})
-
-local minDurSlider = b:AddSlider("RCPT_MinDurSlider", {
-    min = 5, max = 100, step = 5, label = "Min durability (%)",
-    get = function() return RCPT_TalentCheckDB.MinDurabilityPercent end,
-    set = function(v) RCPT_TalentCheckDB.MinDurabilityPercent = v end,
-})
-
-local cbReplace = b:AddCheck("RCPT_Talent_ReplaceReadyCB", {
-    label = "Replace default Ready Check",
-    get = function() return RCPT_TalentCheckDB.ReplaceReadyCheck end,
-    set = function(v) RCPT_TalentCheckDB.ReplaceReadyCheck = v end,
-})
-
-b:AddButton("RCPT_Talent_TestOverlay", "Test Ready Check", 140, function()
-    pcall(function()
-        if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.SimulateReadyCheckEvent then
-            _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
-        elseif _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.TriggerReadyCheck then
-            _G.RCPT_TalentCheck.TriggerReadyCheck()
-        end
-    end)
-end)
-
-local panel = b:Finish()
-
--- Panel lifecycle handlers
-function panel.refresh()
     EnsureConfigDefaults()
     EnsureTalentDefaults()
 
-    cbDebug:SetChecked(not not RCPT_Config.debug)
-    if pullSlider then pullSlider:SetValue(RCPT_Config.pullDuration or 10) end
-    if retrySlider then retrySlider:SetValue(RCPT_Config.retryTimeout or 15) end
-    if maxRetriesSlider then maxRetriesSlider:SetValue(RCPT_Config.maxRetries or 2) end
-    if maxGroupSlider then maxGroupSlider:SetValue(RCPT_Config.maxRequiredGroup or 4) end
+    local Builder = (Addon and Addon.OptionsBuilder) or _G.RCPT_OptionsBuilder
+    local b = Builder.New("RCPTOptionsPanel", UIParent, {leftX = 16, rightX = 300, startY = -60, width = 220})
 
-    if pullSlider and pullSlider.Value then pullSlider.Value:SetText(tostring(RCPT_Config.pullDuration or 10)) end
-    if retrySlider and retrySlider.Value then retrySlider.Value:SetText(tostring(RCPT_Config.retryTimeout or 15)) end
-    if maxRetriesSlider and maxRetriesSlider.Value then maxRetriesSlider.Value:SetText(tostring(RCPT_Config.maxRetries or 2)) end
-    if maxGroupSlider and maxGroupSlider.Value then maxGroupSlider.Value:SetText(tostring(RCPT_Config.maxRequiredGroup or 4)) end
+    b.panel.name = "RCPT"
+    b:AddTitle("RCPT Options")
+    b:AddSubtitle("General settings for RCPT addon.")
 
-    local kws = RCPT_Config.cancelKeywords or {}
-    if kwBox then kwBox:SetText(table.concat(kws, ", ")) end
+    b:AddSection("General")
 
-    if cbParty then cbParty:SetChecked(not not RCPT_TalentCheckDB.SendPartyChatNotification) end
-    if minDurSlider then minDurSlider:SetValue(RCPT_TalentCheckDB.MinDurabilityPercent or 80) end
-    if minDurSlider and minDurSlider.Value then minDurSlider.Value:SetText(tostring(RCPT_TalentCheckDB.MinDurabilityPercent or 80)) end
-    if cbReplace then cbReplace:SetChecked(not not RCPT_TalentCheckDB.ReplaceReadyCheck) end
+    local cbDebug = b:AddCheck("RCPT_DebugCB", {
+        label = "Enable debug logging",
+        get = function() return DB.debug end,
+        set = function(v) DB.debug = v end,
+    })
+
+    local pullSlider = b:AddSlider("RCPT_PullDurationSlider", {
+        min = 1, max = 60, step = 1, label = "Pull timer duration (sec)",
+        get = function() return DB.pullDuration end,
+        set = function(v) DB.pullDuration = v end,
+    })
+
+    local retrySlider = b:AddSlider("RCPT_RetryTimeoutSlider", {
+        min = 1, max = 120, step = 1, label = "Retry timeout (sec)",
+        get = function() return DB.retryTimeout end,
+        set = function(v) DB.retryTimeout = v end,
+    })
+
+    local maxRetriesSlider = b:AddSlider("RCPT_MaxRetriesSlider", {
+        min = 0, max = 10, step = 1, label = "Max retries",
+        get = function() return DB.maxRetries end,
+        set = function(v) DB.maxRetries = v end,
+    })
+
+    local maxGroupSlider = b:AddSlider("RCPT_MaxRequiredGroupSlider", {
+        min = 0, max = 8, step = 1, label = "Only Check Raid Group 1 through: (0 = all)",
+        get = function() return DB.maxRequiredGroup end,
+        set = function(v) DB.maxRequiredGroup = v end,
+    })
+
+    local kwBox = b:AddEditBox("RCPT_CancelKeywordsBox", {
+        width = 260,
+        get = function() return table.concat(DB.cancelKeywords or {}, ", ") end,
+        onEnter = true,
+        onSave = function(text)
+            local t = {}
+            for word in text:gmatch("%s*([^,]+)%s*") do
+                word = word:gsub("^%s+", ""):gsub("%s+$", "")
+                if word ~= "" then table.insert(t, word) end
+            end
+            DB.cancelKeywords = t
+        end,
+    })
+
+    b:AddSection("TalentCheck settings")
+
+    local cbParty = b:AddCheck("RCPT_Talent_SendPartyCB", {
+        label = "Send loadout notification to party",
+        get = function() return TDB.SendPartyChatNotification end,
+        set = function(v) TDB.SendPartyChatNotification = v end,
+    })
+
+    local minDurSlider = b:AddSlider("RCPT_MinDurSlider", {
+        min = 5, max = 100, step = 5, label = "Min durability (%)",
+        get = function() return TDB.MinDurabilityPercent end,
+        set = function(v) TDB.MinDurabilityPercent = v end,
+    })
+
+    local cbReplace = b:AddCheck("RCPT_Talent_ReplaceReadyCB", {
+        label = "Replace default Ready Check",
+        get = function() return TDB.ReplaceReadyCheck end,
+        set = function(v) TDB.ReplaceReadyCheck = v end,
+    })
+
+    b:AddButton("RCPT_Talent_TestOverlay", "Test Ready Check", 140, function()
+        pcall(function()
+            if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.SimulateReadyCheckEvent then
+                _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
+            elseif _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.TriggerReadyCheck then
+                _G.RCPT_TalentCheck.TriggerReadyCheck()
+            end
+        end)
+    end)
+
+    local panel = b:Finish()
+
+    function panel.refresh()
+        EnsureConfigDefaults()
+        EnsureTalentDefaults()
+        cbDebug:SetChecked(not not DB.debug)
+        if pullSlider then pullSlider:SetValue(DB.pullDuration or 10) end
+        if retrySlider then retrySlider:SetValue(DB.retryTimeout or 15) end
+        if maxRetriesSlider then maxRetriesSlider:SetValue(DB.maxRetries or 2) end
+        if maxGroupSlider then maxGroupSlider:SetValue(DB.maxRequiredGroup or 4) end
+
+        if pullSlider and pullSlider.Value then pullSlider.Value:SetText(tostring(DB.pullDuration or 10)) end
+        if retrySlider and retrySlider.Value then retrySlider.Value:SetText(tostring(DB.retryTimeout or 15)) end
+        if maxRetriesSlider and maxRetriesSlider.Value then maxRetriesSlider.Value:SetText(tostring(DB.maxRetries or 2)) end
+        if maxGroupSlider and maxGroupSlider.Value then maxGroupSlider.Value:SetText(tostring(DB.maxRequiredGroup or 4)) end
+
+        local kws = DB.cancelKeywords or {}
+        if kwBox then kwBox:SetText(table.concat(kws, ", ")) end
+
+        if cbParty then cbParty:SetChecked(not not TDB.SendPartyChatNotification) end
+        if minDurSlider then minDurSlider:SetValue(TDB.MinDurabilityPercent or 80) end
+        if minDurSlider and minDurSlider.Value then minDurSlider.Value:SetText(tostring(TDB.MinDurabilityPercent or 80)) end
+        if cbReplace then cbReplace:SetChecked(not not TDB.ReplaceReadyCheck) end
+    end
+
+    function panel.default()
+        DB.pullDuration = 10
+        DB.retryTimeout = 15
+        DB.maxRetries = 2
+        DB.debug = true
+        DB.cancelKeywords = { "stop", "wait", "hold" }
+        DB.maxRequiredGroup = 4
+
+        TDB.SendPartyChatNotification = false
+        TDB.MinDurabilityPercent = 80
+        TDB.ReplaceReadyCheck = true
+        panel.refresh()
+    end
+
+    panel:SetScript("OnShow", function(self) self.refresh() end)
 end
 
-function panel.default()
-    RCPT_Config.pullDuration = 10
-    RCPT_Config.retryTimeout = 15
-    RCPT_Config.maxRetries = 2
-    RCPT_Config.debug = true
-    RCPT_Config.cancelKeywords = { "stop", "wait", "hold" }
-    RCPT_Config.maxRequiredGroup = 4
-
-    RCPT_TalentCheckDB.SendPartyChatNotification = false
-    RCPT_TalentCheckDB.MinDurabilityPercent = 80
-    RCPT_TalentCheckDB.ReplaceReadyCheck = true
-    panel.refresh()
+-- Register with Addon if available, otherwise init immediately for compatibility
+if _G.RCPT and type(_G.RCPT.RegisterModule) == "function" then
+    _G.RCPT:RegisterModule("Options", Options)
+else
+    pcall(function() Options.Init(_G.RCPT) end)
+    _G.RCPT_Options = Options
 end
 
-panel:SetScript("OnShow", function(self) self.refresh() end)
+return Options

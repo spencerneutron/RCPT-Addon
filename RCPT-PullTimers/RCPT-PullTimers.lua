@@ -8,8 +8,17 @@ local readyMap = {}
 local scheduledCleanup
 local initiatedByMe = false
 
+local Module = {}
+
 -- Ensure defaults from config.lua are applied (safe-call)
 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+
+-- DB alias and refresh helper
+local DB = RCPT_Config
+local function RefreshDB()
+    DB = (_G.RCPT and _G.RCPT.db) or RCPT_Config or {}
+end
+RefreshDB()
 
 -- Helpers
 local function Debug(msg)
@@ -127,7 +136,7 @@ f:SetScript("OnEvent", function(_, event, ...)
         for i = 1, totalMembers do
             local fullName, subgroup, online = GetMemberInfo(i)
             if online and fullName then
-                if RCPT_Config.maxRequiredGroup and RCPT_Config.maxRequiredGroup > 0 and subgroup and subgroup > RCPT_Config.maxRequiredGroup then
+                if DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup then
                     Debug("Skipping " .. fullName .. " in subgroup " .. tostring(subgroup))
                 else
                     if readyMap[fullName] ~= true then
@@ -141,14 +150,14 @@ f:SetScript("OnEvent", function(_, event, ...)
 
         if allReady then
             Debug("Everyone is ready, starting pull timer")
-            StartPullTimer(RCPT_Config.pullDuration)
+            StartPullTimer(DB.pullDuration)
             
             -- Cancel old one before scheduling a new one
             if scheduledCleanup then
                 scheduledCleanup:Cancel()
             end
 
-            scheduledCleanup = C_Timer.NewTimer(RCPT_Config.pullDuration + 1, function()
+            scheduledCleanup = C_Timer.NewTimer(DB.pullDuration + 1, function()
                 Debug("Pull timer expired, cleaning up chat listeners.")
                 UnregisterChatEvents()
                 scheduledCleanup = nil
@@ -156,9 +165,9 @@ f:SetScript("OnEvent", function(_, event, ...)
             end)
         else
             Debug("Not everyone is ready")
-            if RCPT_Config.retryTimeout and retryCount < RCPT_Config.maxRetries then
+            if DB.retryTimeout and retryCount < DB.maxRetries then
                 retryCount = retryCount + 1
-                C_Timer.After(RCPT_Config.retryTimeout, function()
+                C_Timer.After(DB.retryTimeout, function()
                     DoReadyCheck()
                 end)
             else
@@ -172,7 +181,7 @@ f:SetScript("OnEvent", function(_, event, ...)
         Debug("Chat message received: " .. event)
         local msg = select(1, ...)
         msg = msg:lower()
-        for _, keyword in ipairs(RCPT_Config.cancelKeywords) do
+        for _, keyword in ipairs(DB.cancelKeywords or {}) do
             if msg:match(keyword) then
                 Debug("Cancel keyword detected: " .. keyword)
                 CancelPullTimer()
@@ -194,8 +203,19 @@ end
 -- expose initializer for manager to re-attach after teardown
 _G.RCPT_Initialize = InitModule
 
--- call at load-time
-InitModule()
+function Module.Init(addon)
+    -- allow addon to provide DB aliases if present
+    if addon and addon.db then DB = addon.db end
+    RefreshDB()
+    InitModule()
+end
+
+-- Register with core Addon registry if available, otherwise initialize immediately
+if _G.RCPT and type(_G.RCPT.RegisterModule) == "function" then
+    _G.RCPT:RegisterModule("PullTimers", Module)
+else
+    InitModule()
+end
 
 -- Teardown: unregister events and stop timers so the addon can be effectively disabled
 local function Teardown()

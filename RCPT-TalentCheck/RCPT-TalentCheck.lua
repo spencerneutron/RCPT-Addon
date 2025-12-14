@@ -23,8 +23,16 @@ local addonName = "RCPT"
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 local db = RCPT_TalentCheckDB
 
-RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
-db = RCPT_TalentCheckDB
+local Module = {}
+local Addon = _G.RCPT
+local TDB = RCPT_TalentCheckDB
+
+local function RefreshDB()
+        Addon = Addon or _G.RCPT
+        TDB = (Addon and Addon.talentDB) or RCPT_TalentCheckDB
+end
+
+RefreshDB()
 
 -- Local debug wrapper that delegates to the global helper when available.
 local function Debug(msg)
@@ -34,7 +42,7 @@ local function Debug(msg)
 end
 
 local function CheckLowDurability(threshold)
-        threshold = threshold or (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
+        threshold = threshold or (TDB and TDB.MinDurabilityPercent) or 80
         local numLowSlots = 0
         local totalDurability = 0
         local numSlotsWithDurability = 0
@@ -154,7 +162,7 @@ local function CreateReadyOverlay()
                 if self.updateTicker >= 0.5 then
                         self.updateTicker = 0
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
-                        local isLow, numLowSlots, avgDur = CheckLowDurability(RCPT_TalentCheckDB.MinDurabilityPercent)
+                        local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
                         pcall(function()
                                                 if not overlay.collapsed then
                                                         overlay.specText:SetText(specName)
@@ -244,23 +252,23 @@ local function CreateReadyOverlay()
                 end
         end
 
-        if ReadyCheckFrame then
-                ReadyCheckFrame:HookScript("OnShow", function()
-                        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
-                                return
-                        end
-                        overlay:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
-                        overlay:Show()
-                end)
+                if ReadyCheckFrame then
+                        ReadyCheckFrame:HookScript("OnShow", function()
+                                if TDB and TDB.ReplaceReadyCheck then
+                                        return
+                                end
+                                overlay:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
+                                overlay:Show()
+                        end)
 
-                ReadyCheckFrame:HookScript("OnHide", function()
-                        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck then
-                                return
-                        end
-                        overlay:Hide()
-                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
-                end)
-        end
+                        ReadyCheckFrame:HookScript("OnHide", function()
+                                if TDB and TDB.ReplaceReadyCheck then
+                                        return
+                                end
+                                overlay:Hide()
+                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
+                        end)
+                end
 
         overlay:SetScript("OnHide", function(self)
                 if self._autoHideTimer then
@@ -383,10 +391,10 @@ end
 
 local function ReadyCheckHandler()
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
-        local threshold = (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
+        local threshold = (TDB and TDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
 
-        if RCPT_TalentCheckDB and RCPT_TalentCheckDB.SendPartyChatNotification then
+        if TDB and TDB.SendPartyChatNotification then
                 pcall(function()
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         local channel = nil
@@ -403,7 +411,7 @@ local function ReadyCheckHandler()
 
         CreateReadyOverlay()
         if overlay then
-                local replace = RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck
+                local replace = TDB and TDB.ReplaceReadyCheck
                 overlay:ShowForReadyCheck(replace)
                 pcall(function()
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
@@ -444,7 +452,7 @@ local function ReadyCheckHandler()
                                 frame.merchantHandler = h
                         end
                 else
-                        if not (RCPT_TalentCheckDB and RCPT_TalentCheckDB.ReplaceReadyCheck) then
+                        if not (TDB and TDB.ReplaceReadyCheck) then
                                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end end)
                                 pcall(HideRepairText)
                         else
@@ -465,6 +473,11 @@ end
 local function TalentEventHandler(self, event, ...)
         if event == "PLAYER_LOGIN" then
                 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+        elseif event == "READY_CHECK" then
+                ReadyCheckHandler()
+        end
+        if event == "PLAYER_LOGIN" then
+                if Addon and Addon.EnsureDefaults then pcall(function() Addon:EnsureDefaults() end) else if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end end
         elseif event == "READY_CHECK" then
                 ReadyCheckHandler()
         end
@@ -516,8 +529,18 @@ end
 
 _G.RCPT_TalentInitialize = InitTalentModule
 
--- initialize at load time
-InitTalentModule()
+function Module.Init(addon)
+                if addon and addon.talentDB then TDB = addon.talentDB end
+                RefreshDB()
+                InitTalentModule()
+end
+
+-- Register with core Addon registry if available, otherwise initialize immediately
+if _G.RCPT and type(_G.RCPT.RegisterModule) == "function" then
+        _G.RCPT:RegisterModule("TalentCheck", Module)
+else
+        InitTalentModule()
+end
 
 function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end

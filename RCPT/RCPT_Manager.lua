@@ -12,7 +12,8 @@ RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 
 -- Global debug helper (exposed to other modules)
 _G.RCPT_Debug = _G.RCPT_Debug or function(msg)
-    if RCPT_Config and RCPT_Config.debug then
+    local db = (_G.RCPT and _G.RCPT.db) or RCPT_Config
+    if db and db.debug then
         print("|cff00ccff[RCPT]|r " .. tostring(msg))
     end
 end
@@ -79,6 +80,9 @@ local function LoadModule(addonName)
     end
     local ok, reason = RCPT_LoadAddOn(addonName)
     if ok and deferredLoads[addonName] then deferredLoads[addonName] = nil end
+    if ok and _G.RCPT and _G.RCPT.InitModules then
+        pcall(function() _G.RCPT:InitModules() end)
+    end
     return ok, reason
 end
 
@@ -123,7 +127,14 @@ end
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+        if _G.RCPT and _G.RCPT.EnsureDefaults then
+            pcall(function() _G.RCPT:EnsureDefaults() end)
+        elseif RCPT_InitDefaults then
+            pcall(RCPT_InitDefaults)
+        end
+        if _G.RCPT and _G.RCPT.InitModules then
+            pcall(function() _G.RCPT:InitModules() end)
+        end
         C_Timer.After(0.05, EnsureModulesForGroup)
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- group membership changed

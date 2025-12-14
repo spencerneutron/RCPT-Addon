@@ -9,21 +9,27 @@ local function Debug(msg)
 end
 
 -- Public-facing commands (kept as globals for backward compatibility)
+local Addon = _G.RCPT
+local DB = (Addon and Addon.db) or RCPT_Config
+
 function RCPT_ToggleQuiet()
-    RCPT_Config.debug = not RCPT_Config.debug
-    if RCPT_Config.debug then
+    DB.debug = not DB.debug
+    if DB.debug then
         print("|cff00ccff[RCPT]|r Verbose mode |cff00ff00ENABLED|r.")
     else
         print("|cff00ccff[RCPT]|r Verbose mode |cffff0000DISABLED|r. Addon will run silently.")
     end
+    -- keep global in sync for older code
+    RCPT_Config = DB
+    if Addon then Addon.db = DB end
 end
 
 function RCPT_PrintHelp()
     print("|cff00ccff[RCPT Config Help]|r")
-    print(" pullDuration = " .. tostring(RCPT_Config.pullDuration))
-    print(" retryTimeout = " .. tostring(RCPT_Config.retryTimeout))
-    print(" maxRetries = " .. tostring(RCPT_Config.maxRetries))
-    print(" cancelKeywords = {" .. table.concat(RCPT_Config.cancelKeywords, ", ") .. "}")
+    print(" pullDuration = " .. tostring(DB.pullDuration))
+    print(" retryTimeout = " .. tostring(DB.retryTimeout))
+    print(" maxRetries = " .. tostring(DB.maxRetries))
+    print(" cancelKeywords = {" .. table.concat(DB.cancelKeywords or {}, ", ") .. "}")
     print(" ")
     print(" /rcpt                      → Starts ready check")
     print(" /rcpt set <key> <value>   → Set numeric config")
@@ -52,29 +58,35 @@ function RCPT_SetConfig(key, value)
         return
     end
 
-    RCPT_Config[normalizedKey] = num
+    DB[normalizedKey] = num
+    RCPT_Config = DB
+    if Addon then Addon.db = DB end
     print("|cff00ccff[RCPT]|r Set " .. normalizedKey .. " = " .. num)
 end
 
 function RCPT_AddKeyword(word)
-    for _, existing in ipairs(RCPT_Config.cancelKeywords) do
+    DB.cancelKeywords = DB.cancelKeywords or {}
+    for _, existing in ipairs(DB.cancelKeywords) do
         if existing == word then
             print("|cffffff00[RCPT]|r Keyword already exists.")
             return
         end
     end
 
-    if #RCPT_Config.cancelKeywords >= 10 then
+    if #DB.cancelKeywords >= 10 then
         print("|cffff0000[RCPT]|r Maximum of 10 keywords reached.")
         return
     end
 
-    table.insert(RCPT_Config.cancelKeywords, word)
+    table.insert(DB.cancelKeywords, word)
+    RCPT_Config = DB
+    if Addon then Addon.db = DB end
     print("|cff00ccff[RCPT]|r Added keyword: " .. word)
 end
 
 function RCPT_ResetConfig()
     RCPT_Config = nil
+    if Addon then Addon.db = nil end
     ReloadUI()
 end
 

@@ -147,7 +147,8 @@ function OptionsBuilder:Finish()
     return self.panel
 end
 
-return OptionsBuilder
-
 -- Export globally for file-load order flexibility
 _G.RCPT_OptionsBuilder = OptionsBuilder
+if _G.RCPT then _G.RCPT.OptionsBuilder = OptionsBuilder end
+
+return OptionsBuilder
