@@ -59,6 +59,9 @@ local function RegisterChatEvents()
     if chatEventsRegistered then return end
     f:RegisterEvent("CHAT_MSG_PARTY")
     f:RegisterEvent("CHAT_MSG_RAID")
+    -- include leader-specific events; handler will dedupe duplicate notifications
+    f:RegisterEvent("CHAT_MSG_PARTY_LEADER")
+    f:RegisterEvent("CHAT_MSG_RAID_LEADER")
     chatEventsRegistered = true
 end
 
@@ -66,6 +69,8 @@ local function UnregisterChatEvents()
     if not chatEventsRegistered then return end
     f:UnregisterEvent("CHAT_MSG_PARTY")
     f:UnregisterEvent("CHAT_MSG_RAID")
+    f:UnregisterEvent("CHAT_MSG_PARTY_LEADER")
+    f:UnregisterEvent("CHAT_MSG_RAID_LEADER")
     chatEventsRegistered = false
 end
 
@@ -196,9 +201,10 @@ f:SetScript("OnEvent", function(_, event, ...)
     elseif event:match("^CHAT_MSG_") then
         Debug("Chat message received: " .. event)
         local msg = select(1, ...)
+        if not msg then return end
         msg = msg:lower()
         for _, keyword in ipairs(DB.cancelKeywords or {}) do
-            if msg:match(keyword) then
+            if msg:match(keyword:lower()) then
                 Debug("Cancel keyword detected: " .. keyword)
                 CancelPullTimer()
                 break

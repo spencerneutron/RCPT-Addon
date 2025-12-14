@@ -472,12 +472,11 @@ end
 
 local function TalentEventHandler(self, event, ...)
         if event == "PLAYER_LOGIN" then
-                if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
-        elseif event == "READY_CHECK" then
-                ReadyCheckHandler()
-        end
-        if event == "PLAYER_LOGIN" then
-                if Addon and Addon.EnsureDefaults then pcall(function() Addon:EnsureDefaults() end) else if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end end
+                if Addon and Addon.EnsureDefaults then
+                        pcall(function() Addon:EnsureDefaults() end)
+                else
+                        if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+                end
         elseif event == "READY_CHECK" then
                 ReadyCheckHandler()
         end
