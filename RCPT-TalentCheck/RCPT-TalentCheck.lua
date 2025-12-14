@@ -26,6 +26,13 @@ local db = RCPT_TalentCheckDB
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 db = RCPT_TalentCheckDB
 
+-- Local debug wrapper that delegates to the global helper when available.
+local function Debug(msg)
+        if _G and _G.RCPT_Debug then
+                _G.RCPT_Debug(msg)
+        end
+end
+
 local function CheckLowDurability(threshold)
         threshold = threshold or (RCPT_TalentCheckDB and RCPT_TalentCheckDB.MinDurabilityPercent) or 80
         local numLowSlots = 0
@@ -545,10 +552,10 @@ local function TalentTeardown()
     end
     frame:UnregisterAllEvents()
     frame:SetScript("OnEvent", nil)
-    if _G.RCPT_TalentCheck then
-        _G.RCPT_TalentCheck = nil
-    end
-    print("|cff00ccff[RCPT]|r TalentCheck module torn down.")
+        if _G.RCPT_TalentCheck then
+                _G.RCPT_TalentCheck = nil
+        end
+        Debug("TalentCheck module torn down.")
 end
 
 _G.RCPT_TalentTeardown = TalentTeardown

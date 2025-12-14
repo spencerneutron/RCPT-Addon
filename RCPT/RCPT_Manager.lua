@@ -9,6 +9,15 @@ local f = CreateFrame("Frame")
 RCPT_Config = RCPT_Config or {}
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 
+-- Global debug helper exposed to other modules. Prints only when
+-- `RCPT_Config.debug` is truthy. Other modules should call
+-- `_G.RCPT_Debug(msg)` (or use the local wrapper) for debug output.
+_G.RCPT_Debug = _G.RCPT_Debug or function(msg)
+    if RCPT_Config and RCPT_Config.debug then
+        print("|cff00ccff[RCPT]|r " .. tostring(msg))
+    end
+end
+
 local MODULES = {
     Main = "RCPT-PullTimers",
     Talent = "RCPT-TalentCheck",
@@ -41,11 +50,12 @@ local function RetryDeferredLoads()
         -- attempt to load each deferred addon; clear entry on success or error
         if not RCPT_IsAddOnLoaded(addonName) then
             local ok, reason = RCPT_LoadAddOn(addonName)
-            if ok then
-                deferredLoads[addonName] = nil
-                print("|cff00ccff[RCPT]|r  Deferred module loaded:", addonName)
-            else
-                print("|cff00ccff[RCPT]|r  Retry failed for deferred module:", addonName, reason)
+                if ok then
+                    deferredLoads[addonName] = nil
+                    _G.RCPT_Debug("Deferred module loaded: " .. tostring(addonName))
+                else
+                    _G.RCPT_Debug("Retry failed for deferred module: " .. tostring(addonName) .. " " .. tostring(reason))
+                end
             end
         else
             deferredLoads[addonName] = nil
@@ -89,7 +99,7 @@ local function EnsureModulesForGroup()
         -- Load main first
         if not RCPT_IsAddOnLoaded(MODULES.Main) then
             local ok, r = LoadModule(MODULES.Main)
-            if not ok and r ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Main, r) end
+            if not ok and r ~= "IN_COMBAT" then _G.RCPT_Debug("Failed to load module: " .. tostring(MODULES.Main) .. " " .. tostring(r)) end
         else
             -- If the addon is loaded but not active (was torn down), attempt to re-initialize
             if not _G.RCPT_MainActive and _G.RCPT_Initialize then
@@ -99,7 +109,7 @@ local function EnsureModulesForGroup()
         -- Load talent module as well
         if not RCPT_IsAddOnLoaded(MODULES.Talent) then
             local ok2, r2 = LoadModule(MODULES.Talent)
-            if not ok2 and r2 ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Talent, r2) end
+            if not ok2 and r2 ~= "IN_COMBAT" then _G.RCPT_Debug("Failed to load module: " .. tostring(MODULES.Talent) .. " " .. tostring(r2)) end
         else
             if not _G.RCPT_TalentActive and _G.RCPT_TalentInitialize then
                 pcall(_G.RCPT_TalentInitialize)
@@ -118,7 +128,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.05, EnsureModulesForGroup)
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- group membership changed
-        print("Group roster updated")
+        _G.RCPT_Debug("Group roster updated")
         C_Timer.After(0.05, EnsureModulesForGroup)
     elseif event == "PLAYER_REGEN_ENABLED" then
         f:UnregisterEvent("PLAYER_REGEN_ENABLED")

@@ -10,9 +10,11 @@ local initiatedByMe = false
 -- ensure defaults from config.lua are applied
 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
 
+-- Local wrapper that delegates to the global debug helper if available.
 local function Debug(msg)
-    if not (RCPT_Config and RCPT_Config.debug) then return end
-    print("|cff00ccff[RCPT]|r " .. msg)
+    if _G.RCPT_Debug then
+        _G.RCPT_Debug(msg)
+    end
 end
 
 local function StartPullTimer(seconds)
@@ -78,7 +80,7 @@ end
 function RCPT_SetConfig(key, value)
     local num = tonumber(value)
     if not num then
-        print("|cffff0000[RCPT]|r Value must be numeric.")
+        Debug("TalentCheck config value must be numeric.")
         return
     end
 
