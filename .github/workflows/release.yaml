@@ -22,13 +22,13 @@ jobs:
           set -e
           mkdir -p release/beta
           mkdir -p release/retail
-          cp -r RCPT RCPT-PullTimers RCPT-TalentCheck release/beta/
-          cp -r RCPT RCPT-PullTimers RCPT-TalentCheck release/retail/
+          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/beta/
+          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/retail/
 
       - name: Adjust .toc files for Retail build
         run: |
           set -e
-          for toc in release/retail/RCPT/*.toc release/retail/RCPT-PullTimers/*.toc release/retail/RCPT-TalentCheck/*.toc; do
+          for toc in release/retail/RCPT/*.toc release/retail/RCPT_PullTimers/*.toc release/retail/RCPT_TalentCheck/*.toc; do
             if [ -f "$toc" ]; then
               sed -E -i '1s/^## Interface:.*$/## Interface: 110207/' "$toc"
             fi
@@ -37,12 +37,12 @@ jobs:
       - name: Create Beta zip
         run: |
           cd release/beta
-          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Beta.zip" RCPT RCPT-PullTimers RCPT-TalentCheck
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Beta.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
       - name: Create Retail zip
         run: |
           cd release/retail
-          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Retail.zip" RCPT RCPT-PullTimers RCPT-TalentCheck
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Retail.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
       - name: Upload release to GitHub
         uses: softprops/action-gh-release@v1

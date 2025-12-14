@@ -1,4 +1,4 @@
--- RCPT-PullTimers-Slash.lua
+-- RCPT_PullTimers_Slash.lua
 -- Slash command handlers for the PullTimers module.
 
 -- Local debug helper (delegates to global if present)

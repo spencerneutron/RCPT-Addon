@@ -4,4 +4,4 @@
 ## LoadOnDemand: 1
 ## Dependencies: RCPT
 
-RCPT-TalentCheck.lua
+RCPT_TalentCheck.lua

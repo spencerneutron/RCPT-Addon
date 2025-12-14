@@ -20,8 +20,8 @@ end
 
 -- Module constants
 local MODULES = {
-    Main = "RCPT-PullTimers",
-    Talent = "RCPT-TalentCheck",
+    Main = "RCPT_PullTimers",
+    Talent = "RCPT_TalentCheck",
 }
 
 -- API adapters (prefer modern namespaced APIs when available)

@@ -4,5 +4,5 @@
 ## LoadOnDemand: 1
 ## Dependencies: RCPT
 
-RCPT-PullTimers.lua
-RCPT-PullTimers-Slash.lua
+RCPT_PullTimers.lua
+RCPT_PullTimers_Slash.lua
