@@ -66,5 +66,5 @@ jobs:
           gh release create "$TAG" \
             release/RCPT_v${{ steps.tag.outputs.version }}-Retail.zip \
             release/RCPT_v${{ steps.tag.outputs.version }}-Beta.zip \
-            --title "RCPT $TAG" \
+            --title "$TAG" \
             --notes "Automated release for $TAG"
