@@ -56,13 +56,14 @@ function Addon:EnsureDefaults()
     local target = self.Defaults.configVersion or 0
 
     if current ~= target then
+        RCPT_Debug("|cff00ccff[RCPT]|r Config version mismatch: current=" .. tostring(current) .. ", target=" .. tostring(target))
         if current < target then
             self:RunMigrations(current)
         end
         -- always merge missing keys, even if config is newer than target
         MergeDefaults(RCPT_Config, self.Defaults)
         RCPT_Config.configVersion = target
-        print("|cff00ccff[RCPT]|r Config migrated to version", target)
+        RCPT_Debug("|cff00ccff[RCPT]|r Config migrated to version " .. tostring(target))
     else
         MergeDefaults(RCPT_Config, self.Defaults)
     end

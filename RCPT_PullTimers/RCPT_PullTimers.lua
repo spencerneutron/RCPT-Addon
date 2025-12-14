@@ -7,6 +7,7 @@ local retryCount = 0
 local readyMap = {}
 local scheduledCleanup
 local initiatedByMe = false
+local chatEventsRegistered = false
 
 local Module = {}
 
@@ -39,19 +40,33 @@ local function CancelPullTimer()
     end
 end
 
+-- Normalize unit/name returns into a single full-name string used as keys
+local function MakeFullNameFromParts(name, realm)
+    if not name then return nil end
+    if realm and realm ~= "" then
+        return name .. "-" .. realm
+    end
+    return name
+end
+
+local function FullNameForUnit(unit)
+    local name, realm = UnitFullName(unit)
+    return MakeFullNameFromParts(name, realm)
+end
+
 -- Chat event registration helpers
 local function RegisterChatEvents()
+    if chatEventsRegistered then return end
     f:RegisterEvent("CHAT_MSG_PARTY")
     f:RegisterEvent("CHAT_MSG_RAID")
-    f:RegisterEvent("CHAT_MSG_PARTY_LEADER")
-    f:RegisterEvent("CHAT_MSG_RAID_LEADER")
+    chatEventsRegistered = true
 end
 
 local function UnregisterChatEvents()
+    if not chatEventsRegistered then return end
     f:UnregisterEvent("CHAT_MSG_PARTY")
     f:UnregisterEvent("CHAT_MSG_RAID")
-    f:UnregisterEvent("CHAT_MSG_PARTY_LEADER")
-    f:UnregisterEvent("CHAT_MSG_RAID_LEADER")
+    chatEventsRegistered = false
 end
 
 -- Start a ready check and ensure chat listeners are active.
@@ -61,8 +76,8 @@ local function RCPT_RunReadyCheck()
     RegisterChatEvents()
     readyMap = {}
 
-    local me = UnitFullName("player")
-    readyMap[me] = true
+    local me = FullNameForUnit("player")
+    if me then readyMap[me] = true end
 
     DoReadyCheck()
 end
@@ -80,7 +95,8 @@ f:SetScript("OnEvent", function(_, event, ...)
         if UnitIsUnit("player", initiatorUnit) then
             initiatedByMe = true
             readyMap = {}
-            readyMap[UnitFullName("player")] = true
+            local me = FullNameForUnit("player")
+            if me then readyMap[me] = true end
             Debug("You initiated the ready check")
         else
             initiatedByMe = false
