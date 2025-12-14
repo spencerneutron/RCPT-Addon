@@ -252,7 +252,7 @@ local function Teardown()
     retryCount = 0
     initiatedByMe = false
     readyMap = {}
-    Debug("|cff00ccff[RCPT]|r PullTimers module torn down.")
+    Debug("PullTimers module torn down.")
 end
 
 _G.RCPT_Teardown = Teardown
