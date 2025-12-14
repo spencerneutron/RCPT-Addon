@@ -181,9 +181,68 @@ local function CreateReadyOverlay()
                                                         ReadyCheckFrameYesButton:Enable()
                                                 end
                                         end
+                                        -- update mini view if showing
+                                        if overlay.mini and overlay.mini:IsShown() then
+                                                local ok, status = pcall(GetReadyCheckStatus, "player")
+                                                if not ok then status = nil end
+                                                if overlay.mini.statusIcon and status then
+                                                        if status == "ready" then
+                                                                overlay.mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                                        elseif status == "notready" then
+                                                                overlay.mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
+                                                        else
+                                                                overlay.mini.statusIcon:SetTexture(nil)
+                                                        end
+                                                end
+                                                if overlay.mini.durText then
+                                                        overlay.mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5)))
+                                                end
+                                                if overlay.mini.loadoutText then
+                                                        overlay.mini.loadoutText:SetText(loadoutName)
+                                                end
+                                        end
                         end)
                 end
         end)
+
+        -- Compact persistent mini overlay shown after the player responds (or if they initiated)
+        local function CreateMiniOverlay(parent)
+                if overlay.mini then return overlay.mini end
+                local m = CreateFrame("Frame", addonName .. "ReadyMiniOverlay", parent, "BackdropTemplate")
+                m:SetSize(240, 28)
+                m:SetFrameStrata("HIGH")
+                m:SetBackdrop({
+                        bgFile = "Interface\\FriendsFrame\\UI-Toast-Background",
+                        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                        tile = false,
+                        edgeSize = 8,
+                })
+                m:SetBackdropColor(0, 0, 0, 0.6)
+
+                m.statusIcon = m:CreateTexture(nil, "ARTWORK")
+                m.statusIcon:SetSize(18, 18)
+                m.statusIcon:SetPoint("LEFT", 8, 0)
+
+                m.durText = m:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+                m.durText:SetPoint("LEFT", m.statusIcon, "RIGHT", 8, 0)
+
+                m.loadoutText = m:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                m.loadoutText:SetPoint("LEFT", m.durText, "RIGHT", 12, 0)
+                m.loadoutText:SetWidth(120)
+                m.loadoutText:SetJustifyH("LEFT")
+
+                m:SetScript("OnShow", function(self)
+                        self.updateTicker = 0
+                end)
+
+                m:SetScript("OnHide", function(self)
+                        -- nothing for now; overlay cleanup handles watcher/timers
+                end)
+
+                m:Hide()
+                overlay.mini = m
+                return m
+        end
 
         function overlay:ShowForReadyCheck(replaceDefault)
                 if replaceDefault then
@@ -205,6 +264,42 @@ local function CreateReadyOverlay()
                 end
                 self:Show()
 
+                -- If the player already responded (or is the initiator), show the compact mini view immediately
+                do
+                        local ok, status = pcall(GetReadyCheckStatus, "player")
+                        if ok and status and (status == "ready" or status == "notready") then
+                                local mini = CreateMiniOverlay(self)
+                                if replaceDefault then
+                                        mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                else
+                                        if ReadyCheckFrame then
+                                                mini:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
+                                        else
+                                                mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                        end
+                                end
+                                -- hide the primary overlay entirely but keep watcher/timers alive
+                                overlay._suppressOnHideClear = true
+                                -- if we previously hid Blizzard's ReadyCheckFrame, don't re-show it later
+                                overlay._hidDefault = nil
+                                overlay:Hide()
+                                -- fill mini
+                                pcall(function()
+                                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                                        local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
+                                        local ok2, st = pcall(GetReadyCheckStatus, "player")
+                                        if ok2 and st then
+                                                if st == "ready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                                elseif st == "notready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
+                                                else mini.statusIcon:SetTexture(nil) end
+                                        end
+                                        if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5))) end
+                                        if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
+                                end)
+                                mini:Show()
+                        end
+                end
+
                 if self._autoHideTimer then
                         self._autoHideTimer:Cancel()
                         self._autoHideTimer = nil
@@ -213,31 +308,71 @@ local function CreateReadyOverlay()
                         local w = CreateFrame("Frame")
                         w:SetScript("OnEvent", function(_, event, ...)
                                 if event == "READY_CHECK_FINISHED" then
-                                        if overlay and overlay.Hide then overlay:Hide() end
-                                        return
-                                end
+                                                if overlay and overlay.Hide then
+                                                        overlay:Hide()
+                                                end
+                                                -- also hide mini if present
+                                                if overlay and overlay.mini and overlay.mini.Hide then
+                                                        overlay.mini:Hide()
+                                                end
+                                                return
+                                        end
 
-                                if event == "READY_CHECK_CONFIRM" then
-                                        local unitOrName = select(1, ...)
-                                        local isPlayerConfirm = false
+                                        if event == "READY_CHECK_CONFIRM" then
+                                                local unitOrName = select(1, ...)
+                                                local isPlayerConfirm = false
 
-                                        local ok1, res1 = pcall(function()
-                                                if UnitIsUnit then return UnitIsUnit(unitOrName, "player") end
-                                                return false
-                                        end)
-                                        if ok1 and res1 then isPlayerConfirm = true end
+                                                local ok1, res1 = pcall(function()
+                                                        if UnitIsUnit then return UnitIsUnit(unitOrName, "player") end
+                                                        return false
+                                                end)
+                                                if ok1 and res1 then isPlayerConfirm = true end
 
-                                        if not isPlayerConfirm then
-                                                local ok2, pname = pcall(UnitName, "player")
-                                                if ok2 and pname and unitOrName == pname then
-                                                        isPlayerConfirm = true
+                                                if not isPlayerConfirm then
+                                                        local ok2, pname = pcall(UnitName, "player")
+                                                        if ok2 and pname and unitOrName == pname then
+                                                                isPlayerConfirm = true
+                                                        end
+                                                end
+
+                                                if isPlayerConfirm then
+                                                        -- show compact mini overlay to indicate player's response
+                                                        local mini = CreateMiniOverlay(self)
+                                                        if replaceDefault then
+                                                                mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                                        else
+                                                                if ReadyCheckFrame then
+                                                                        mini:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
+                                                                else
+                                                                        mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                                                end
+                                                        end
+                                                        -- update contents once
+                                                        pcall(function()
+                                                                local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                                                                local ok, status = pcall(GetReadyCheckStatus, "player")
+                                                                if ok and status then
+                                                                        if status == "ready" then
+                                                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                                                        elseif status == "notready" then
+                                                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
+                                                                        else
+                                                                                mini.statusIcon:SetTexture(nil)
+                                                                        end
+                                                                end
+                                                                local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
+                                                                if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5))) end
+                                                                if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
+                                                        end)
+
+                                                                -- hide the primary overlay entirely but keep watcher/timers alive
+                                                                overlay._suppressOnHideClear = true
+                                                                -- ensure we won't re-show the default ReadyCheckFrame later
+                                                                overlay._hidDefault = nil
+                                                                overlay:Hide()
+                                                                mini:Show()
                                                 end
                                         end
-
-                                        if isPlayerConfirm then
-                                                if overlay and overlay.Hide then overlay:Hide() end
-                                        end
-                                end
                         end)
                         w:RegisterEvent("READY_CHECK_FINISHED")
                         w:RegisterEvent("READY_CHECK_CONFIRM")
@@ -271,6 +406,11 @@ local function CreateReadyOverlay()
                 end
 
         overlay:SetScript("OnHide", function(self)
+                if self._suppressOnHideClear then
+                        -- keep watcher/timers running and keep mini visible when we intentionally hide primary overlay
+                        self._suppressOnHideClear = nil
+                        return
+                end
                 if self._autoHideTimer then
                         pcall(function() self._autoHideTimer:Cancel() end)
                         self._autoHideTimer = nil
@@ -278,6 +418,9 @@ local function CreateReadyOverlay()
                 if self.watcher then
                         pcall(function() self.watcher:UnregisterAllEvents(); self.watcher:SetScript("OnEvent", nil) end)
                         self.watcher = nil
+                end
+                if self.mini and self.mini.Hide then
+                        pcall(function() self.mini:Hide() end)
                 end
                 if self._hidDefault then
                         pcall(function() if ReadyCheckFrame and ReadyCheckFrame.Show then ReadyCheckFrame:Show() end end)
