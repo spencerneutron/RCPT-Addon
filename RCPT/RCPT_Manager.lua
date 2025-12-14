@@ -78,14 +78,9 @@ local function TeardownModule(addonName)
     if not addonName then return end
     -- Call known teardown hooks where available
     if addonName == MODULES.Main then
-        if _G.RCPT_Teardown then pcall(_G.RCPT_Teardown)
-            -- nil-out the global teardown reference to avoid stale hooks
-            _G.RCPT_Teardown = nil
-        end
+        if _G.RCPT_Teardown then pcall(_G.RCPT_Teardown) end
     elseif addonName == MODULES.Talent then
-        if _G.RCPT_TalentTeardown then pcall(_G.RCPT_TalentTeardown)
-            _G.RCPT_TalentTeardown = nil
-        end
+        if _G.RCPT_TalentTeardown then pcall(_G.RCPT_TalentTeardown) end
     end
 end
 
@@ -95,11 +90,20 @@ local function EnsureModulesForGroup()
         if not RCPT_IsAddOnLoaded(MODULES.Main) then
             local ok, r = LoadModule(MODULES.Main)
             if not ok and r ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Main, r) end
+        else
+            -- If the addon is loaded but not active (was torn down), attempt to re-initialize
+            if not _G.RCPT_MainActive and _G.RCPT_Initialize then
+                pcall(_G.RCPT_Initialize)
+            end
         end
         -- Load talent module as well
         if not RCPT_IsAddOnLoaded(MODULES.Talent) then
             local ok2, r2 = LoadModule(MODULES.Talent)
             if not ok2 and r2 ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Talent, r2) end
+        else
+            if not _G.RCPT_TalentActive and _G.RCPT_TalentInitialize then
+                pcall(_G.RCPT_TalentInitialize)
+            end
         end
     else
         -- Not in group: request teardown of loaded modules
@@ -114,6 +118,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.05, EnsureModulesForGroup)
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- group membership changed
+        print("Group roster updated")
         C_Timer.After(0.05, EnsureModulesForGroup)
     elseif event == "PLAYER_REGEN_ENABLED" then
         f:UnregisterEvent("PLAYER_REGEN_ENABLED")

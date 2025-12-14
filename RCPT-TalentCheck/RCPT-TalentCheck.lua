@@ -455,22 +455,62 @@ local function ReadyCheckHandler()
         end
 end
 
-frame:SetScript("OnEvent", function(self, event, ...)
+local function TalentEventHandler(self, event, ...)
         if event == "PLAYER_LOGIN" then
                 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
         elseif event == "READY_CHECK" then
                 ReadyCheckHandler()
         end
-end)
+end
 
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("READY_CHECK")
+local function ensureExports()
+        _G.RCPT_TalentCheck = {
+                CheckLowDurability = CheckLowDurability,
+                GetSpecAndLoadout = GetSpecAndLoadout,
+                TriggerReadyCheck = ReadyCheckHandler,
+        }
 
-_G.RCPT_TalentCheck = {
-        CheckLowDurability = CheckLowDurability,
-        GetSpecAndLoadout = GetSpecAndLoadout,
-        TriggerReadyCheck = ReadyCheckHandler,
-}
+        function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
+                if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
+                pcall(ReadyCheckHandler)
+                pcall(function()
+                        if ReadyCheckFrame_Show then
+                                ReadyCheckFrame_Show()
+                        elseif ReadyCheckFrame and ReadyCheckFrame.Show then
+                                ReadyCheckFrame:Show()
+                        end
+                end)
+                pcall(function()
+                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end
+                        if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Show then ReadyCheckFrameNoButton:Show() end
+                end)
+                pcall(function()
+                        if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
+                                PlaySound(SOUNDKIT.READY_CHECK)
+                        elseif PlaySound and SOUNDKIT and SOUNDKIT.UI_READY_CHECK then
+                                PlaySound(SOUNDKIT.UI_READY_CHECK)
+                        end
+                end)
+        end
+
+        function _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
+                ReadyCheckHandler()
+        end
+end
+
+local function InitTalentModule()
+        -- restore event handler and exports
+        frame:SetScript("OnEvent", TalentEventHandler)
+        frame:RegisterEvent("PLAYER_LOGIN")
+        frame:RegisterEvent("READY_CHECK")
+        ensureExports()
+        _G.RCPT_TalentActive = true
+end
+
+_G.RCPT_TalentInitialize = InitTalentModule
+
+-- initialize at load time
+InitTalentModule()
 
 function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
@@ -512,3 +552,9 @@ local function TalentTeardown()
 end
 
 _G.RCPT_TalentTeardown = TalentTeardown
+-- wrap teardown to clear active flag
+local oldTalentTeardown = _G.RCPT_TalentTeardown
+_G.RCPT_TalentTeardown = function(...)
+        if oldTalentTeardown then pcall(oldTalentTeardown, ...) end
+        _G.RCPT_TalentActive = false
+end

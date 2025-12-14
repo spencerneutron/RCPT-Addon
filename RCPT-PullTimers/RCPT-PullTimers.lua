@@ -249,11 +249,20 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
--- Register events at module load time so the frame receives ready-check lifecycle events
-f:RegisterEvent("PLAYER_LOGIN")
-f:RegisterEvent("READY_CHECK")
-f:RegisterEvent("READY_CHECK_CONFIRM")
-f:RegisterEvent("READY_CHECK_FINISHED")
+local function InitModule()
+    -- Register events so the frame receives ready-check lifecycle events
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("READY_CHECK")
+    f:RegisterEvent("READY_CHECK_CONFIRM")
+    f:RegisterEvent("READY_CHECK_FINISHED")
+    _G.RCPT_MainActive = true
+end
+
+-- expose initializer for manager to re-attach after teardown
+_G.RCPT_Initialize = InitModule
+
+-- call at load-time
+InitModule()
 
 -- Teardown: unregister events and stop timers so the addon can be effectively disabled
 local function Teardown()
@@ -268,7 +277,13 @@ local function Teardown()
     retryCount = 0
     initiatedByMe = false
     readyMap = {}
-    Debug("Teardown complete; main addon idle.")
+    Debug("|cff00ccff[RCPT]|r PullTimers module torn down.")
 end
 
 _G.RCPT_Teardown = Teardown
+-- mark inactive when torn down
+local oldTeardown = _G.RCPT_Teardown
+_G.RCPT_Teardown = function(...)
+    if oldTeardown then pcall(oldTeardown, ...) end
+    _G.RCPT_MainActive = false
+end
