@@ -1,4 +1,4 @@
--- RCPT-PullTimers.lua
+-- RCPT_PullTimers.lua
 -- Core runtime for RCPT PullTimers module (load-on-demand)
 
 -- Public frame and module state
