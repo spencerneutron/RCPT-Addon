@@ -2,6 +2,6 @@
 ## Title: RCPT - Core
 ## Notes: Core runtime for RCPT (load-on-demand)
 ## LoadOnDemand: 1
-## OptionalDeps: RCPT-TalentCheck
+## Dependencies: RCPT
 
 RCPT-Main.lua
