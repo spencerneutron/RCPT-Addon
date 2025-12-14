@@ -4,6 +4,7 @@
 ## Author: boolbog
 ## Version: 1.1.4
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
+
 core.lua
 config.lua
 OptionsBuilder.lua
