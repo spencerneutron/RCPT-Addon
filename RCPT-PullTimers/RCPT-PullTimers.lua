@@ -1,16 +1,17 @@
 -- RCPT-PullTimers.lua
--- Core runtime for RCPT; load-on-demand. Originally from root RCPT.lua.
+-- Core runtime for RCPT PullTimers module (load-on-demand)
 
+-- Public frame and module state
 local f = CreateFrame("Frame")
 local retryCount = 0
 local readyMap = {}
-local scheduledCleanup = nil
+local scheduledCleanup
 local initiatedByMe = false
 
--- ensure defaults from config.lua are applied
+-- Ensure defaults from config.lua are applied (safe-call)
 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
 
--- Local wrapper that delegates to the global debug helper if available.
+-- Helpers
 local function Debug(msg)
     if _G.RCPT_Debug then
         _G.RCPT_Debug(msg)
@@ -29,6 +30,7 @@ local function CancelPullTimer()
     end
 end
 
+-- Chat event registration helpers
 local function RegisterChatEvents()
     f:RegisterEvent("CHAT_MSG_PARTY")
     f:RegisterEvent("CHAT_MSG_RAID")
@@ -43,16 +45,9 @@ local function UnregisterChatEvents()
     f:UnregisterEvent("CHAT_MSG_RAID_LEADER")
 end
 
-function RCPT_ToggleQuiet()
-    RCPT_Config.debug = not RCPT_Config.debug
-    if RCPT_Config.debug then
-        print("|cff00ccff[RCPT]|r Verbose mode |cff00ff00ENABLED|r.")
-    else
-        print("|cff00ccff[RCPT]|r Verbose mode |cffff0000DISABLED|r. Addon will run silently.")
-    end
-end
-
-function RCPT_RunReadyCheck()
+-- Start a ready check and ensure chat listeners are active.
+-- Declared local and exported explicitly to avoid accidental globals.
+local function RCPT_RunReadyCheck()
     retryCount = 0
     RegisterChatEvents()
     readyMap = {}
@@ -63,101 +58,7 @@ function RCPT_RunReadyCheck()
     DoReadyCheck()
 end
 
-function RCPT_PrintHelp()
-    print("|cff00ccff[RCPT Config Help]|r")
-    print(" pullDuration = " .. tostring(RCPT_Config.pullDuration))
-    print(" retryTimeout = " .. tostring(RCPT_Config.retryTimeout))
-    print(" maxRetries = " .. tostring(RCPT_Config.maxRetries))
-    print(" cancelKeywords = {" .. table.concat(RCPT_Config.cancelKeywords, ", ") .. "}")
-    print(" ")
-    print(" /rcpt                      → Starts ready check")
-    print(" /rcpt set <key> <value>   → Set numeric config")
-    print(" /rcpt addkeyword <word>   → Add a cancel keyword (max 10)")
-    print(" /rcpt reset               → Reset config to defaults")
-    print(" /rcpt quiet               → Toggle addon chat messages on/off")
-end
-
-function RCPT_SetConfig(key, value)
-    local num = tonumber(value)
-    if not num then
-        Debug("TalentCheck config value must be numeric.")
-        return
-    end
-
-    local normalizedKeys = {
-        pullduration = "pullDuration",
-        retrytimeout = "retryTimeout",
-        maxretries = "maxRetries"
-    }
-    
-    local normalizedKey = normalizedKeys[key:lower()]
-
-    if not normalizedKey then
-        print("|cffff0000[RCPT]|r Invalid key: " .. key)
-        return
-    end
-
-    RCPT_Config[normalizedKey] = num
-    print("|cff00ccff[RCPT]|r Set " .. normalizedKey .. " = " .. num)
-end
-
-function RCPT_AddKeyword(word)
-    for _, existing in ipairs(RCPT_Config.cancelKeywords) do
-        if existing == word then
-            print("|cffffff00[RCPT]|r Keyword already exists.")
-            return
-        end
-    end
-
-    if #RCPT_Config.cancelKeywords >= 10 then
-        print("|cffff0000[RCPT]|r Maximum of 10 keywords reached.")
-        return
-    end
-
-    table.insert(RCPT_Config.cancelKeywords, word)
-    print("|cff00ccff[RCPT]|r Added keyword: " .. word)
-end
-
-function RCPT_ResetConfig()
-    RCPT_Config = nil
-    ReloadUI()
-end
-
--- Slash commands
-SLASH_RCPT1 = "/rcpt"
-
-function SlashCmdList.RCPT(msg)
-    local args = {}
-    for word in msg:gmatch("%S+") do
-        table.insert(args, word)
-    end
-
-    if #args == 0 then
-        RCPT_RunReadyCheck()
-        return
-    end
-
-    local command = args[1]:lower()
-
-    if command == "help" then
-        RCPT_PrintHelp()
-    elseif command == "set" and args[2] and args[3] then
-        RCPT_SetConfig(args[2]:lower(), args[3])
-    elseif command == "addkeyword" and args[2] then
-        RCPT_AddKeyword(args[2]:lower())
-    elseif command == "reset" then
-        RCPT_ResetConfig()
-    elseif command == "quiet" then
-        RCPT_ToggleQuiet()
-    else
-        print("|cffff0000[RCPT]|r Unknown command. Use `/rcpt help`.")
-    end
-end
-
-SLASH_RCPTHELP1 = "/rcpthelp"
-function SlashCmdList.RCPTHELP()
-    RCPT_PrintHelp()
-end
+_G.RCPT_RunReadyCheck = RCPT_RunReadyCheck
 
 f:SetScript("OnEvent", function(_, event, ...)
         -- if the player is not able to send a ready check, ignore everything
@@ -196,14 +97,44 @@ f:SetScript("OnEvent", function(_, event, ...)
         Debug("Ready check finished")
         local allReady = true
 
-        for i = 1, GetNumGroupMembers() do
-            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
-            if online then
-                local fullName = name -- Already includes realm suffix like "Name-Realm"
-                if readyMap[fullName] ~= true then
-                    allReady = false
-                    Debug("Missing or not ready: " .. fullName)
-                    break
+        local inRaid = IsInRaid()
+        local totalMembers = GetNumGroupMembers() or 0
+
+        -- Helper that returns fullName, subgroup, online for the given index
+        local function GetMemberInfo(index)
+            if inRaid then
+                local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(index)
+                if name then
+                    local fullName = name -- GetRaidRosterInfo already returns the name including realm suffix when present
+                    return fullName, subgroup, online
+                end
+                return nil, nil, nil
+            else
+                local unit = (index == 1) and "player" or ("party" .. (index - 1))
+                if UnitExists(unit) then
+                    local name, realm = UnitFullName(unit)
+                    if name then
+                        local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
+                        local online = UnitIsConnected and UnitIsConnected(unit) or true
+                        -- treat party members as subgroup 1 for the purpose of maxRequiredGroup checks
+                        return fullName, 1, online
+                    end
+                end
+                return nil, nil, nil
+            end
+        end
+
+        for i = 1, totalMembers do
+            local fullName, subgroup, online = GetMemberInfo(i)
+            if online and fullName then
+                if RCPT_Config.maxRequiredGroup and RCPT_Config.maxRequiredGroup > 0 and subgroup and subgroup > RCPT_Config.maxRequiredGroup then
+                    Debug("Skipping " .. fullName .. " in subgroup " .. tostring(subgroup))
+                else
+                    if readyMap[fullName] ~= true then
+                        allReady = false
+                        Debug("Missing or not ready: " .. fullName)
+                        break
+                    end
                 end
             end
         end

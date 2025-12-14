@@ -6,7 +6,10 @@ RCPT_Defaults = {
     retryTimeout = 15,
     maxRetries = 1,
     debug = false,
-    configVersion = 2
+    -- Only require readiness from raid subgroups up to this number.
+    -- Set to 0 or nil to require all groups.
+    maxRequiredGroup = 4,
+    configVersion = 3
 }
 
 -- TalentCheck defaults consolidated here so all addon defaults live in one file

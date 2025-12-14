@@ -6,24 +6,24 @@
 
 local f = CreateFrame("Frame")
 
+-- SavedVariables (declared in root TOC)
 RCPT_Config = RCPT_Config or {}
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 
--- Global debug helper exposed to other modules. Prints only when
--- `RCPT_Config.debug` is truthy. Other modules should call
--- `_G.RCPT_Debug(msg)` (or use the local wrapper) for debug output.
+-- Global debug helper (exposed to other modules)
 _G.RCPT_Debug = _G.RCPT_Debug or function(msg)
     if RCPT_Config and RCPT_Config.debug then
         print("|cff00ccff[RCPT]|r " .. tostring(msg))
     end
 end
 
+-- Module constants
 local MODULES = {
     Main = "RCPT-PullTimers",
     Talent = "RCPT-TalentCheck",
 }
 
--- Prefer modern namespaced AddOn APIs (e.g. Midnight) but fall back to globals
+-- API adapters (prefer modern namespaced APIs when available)
 local function RCPT_IsAddOnLoaded(addonName)
     if C_AddOns and type(C_AddOns.IsAddOnLoaded) == "function" then
         return C_AddOns.IsAddOnLoaded(addonName)
@@ -47,26 +47,24 @@ local deferredLoads = {}
 
 local function RetryDeferredLoads()
     for addonName,_ in pairs(deferredLoads) do
-        -- attempt to load each deferred addon; clear entry on success or error
-        if not RCPT_IsAddOnLoaded(addonName) then
-            local ok, reason = RCPT_LoadAddOn(addonName)
-                if ok then
-                    deferredLoads[addonName] = nil
-                    _G.RCPT_Debug("Deferred module loaded: " .. tostring(addonName))
-                else
-                    _G.RCPT_Debug("Retry failed for deferred module: " .. tostring(addonName) .. " " .. tostring(reason))
-                end
-            end
-        else
+        if RCPT_IsAddOnLoaded(addonName) then
             deferredLoads[addonName] = nil
+        else
+            local ok, reason = LoadModule(addonName)
+            if ok then
+                deferredLoads[addonName] = nil
+                _G.RCPT_Debug("Deferred module loaded: " .. tostring(addonName))
+            else
+                _G.RCPT_Debug("Retry failed for deferred module: " .. tostring(addonName) .. " " .. tostring(reason))
+            end
         end
     end
 end
 
-local function IsInGroup()
-    -- call the global API directly to avoid shadowing
-    if _G.IsInGroup then return _G.IsInGroup() end
-    if _G.IsInRaid then return _G.IsInRaid() end
+-- Group detection (use global APIs if present)
+local function RCPT_IsInGroup()
+    if type(IsInGroup) == "function" then return IsInGroup() end
+    if type(IsInRaid) == "function" then return IsInRaid() end
     return false
 end
 
@@ -95,7 +93,7 @@ local function TeardownModule(addonName)
 end
 
 local function EnsureModulesForGroup()
-    if IsInGroup() then
+    if RCPT_IsInGroup() then
         -- Load main first
         if not RCPT_IsAddOnLoaded(MODULES.Main) then
             local ok, r = LoadModule(MODULES.Main)
@@ -106,6 +104,7 @@ local function EnsureModulesForGroup()
                 pcall(_G.RCPT_Initialize)
             end
         end
+
         -- Load talent module as well
         if not RCPT_IsAddOnLoaded(MODULES.Talent) then
             local ok2, r2 = LoadModule(MODULES.Talent)

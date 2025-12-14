@@ -6,5 +6,6 @@
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
 
 config.lua
+OptionsBuilder.lua
 Options.lua
 RCPT_Manager.lua
