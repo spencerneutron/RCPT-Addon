@@ -10,7 +10,7 @@ RCPT_Config = RCPT_Config or {}
 RCPT_TalentCheckDB = RCPT_TalentCheckDB or {}
 
 local MODULES = {
-    Main = "RCPT-Main",
+    Main = "RCPT-PullTimers",
     Talent = "RCPT-TalentCheck",
 }
 
@@ -43,9 +43,9 @@ local function RetryDeferredLoads()
             local ok, reason = RCPT_LoadAddOn(addonName)
             if ok then
                 deferredLoads[addonName] = nil
-                print("[RCPT] Deferred module loaded:", addonName)
+                print("|cff00ccff[RCPT]|r  Deferred module loaded:", addonName)
             else
-                print("[RCPT] Retry failed for deferred module:", addonName, reason)
+                print("|cff00ccff[RCPT]|r  Retry failed for deferred module:", addonName, reason)
             end
         else
             deferredLoads[addonName] = nil
@@ -94,12 +94,12 @@ local function EnsureModulesForGroup()
         -- Load main first
         if not RCPT_IsAddOnLoaded(MODULES.Main) then
             local ok, r = LoadModule(MODULES.Main)
-            if not ok and r ~= "IN_COMBAT" then print("[RCPT] Failed to load module:", MODULES.Main, r) end
+            if not ok and r ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Main, r) end
         end
         -- Load talent module as well
         if not RCPT_IsAddOnLoaded(MODULES.Talent) then
             local ok2, r2 = LoadModule(MODULES.Talent)
-            if not ok2 and r2 ~= "IN_COMBAT" then print("[RCPT] Failed to load module:", MODULES.Talent, r2) end
+            if not ok2 and r2 ~= "IN_COMBAT" then print("|cff00ccff[RCPT]|r Failed to load module:", MODULES.Talent, r2) end
         end
     else
         -- Not in group: request teardown of loaded modules
@@ -140,4 +140,4 @@ function SlashCmdList.RCPTMANAGER(msg)
     EnsureModulesForGroup()
 end
 
-print("[RCPT] Manager initialized")
+print("|cff00ccff[RCPT]|r Manager initialized")

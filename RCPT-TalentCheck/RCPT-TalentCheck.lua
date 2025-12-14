@@ -508,7 +508,7 @@ local function TalentTeardown()
     if _G.RCPT_TalentCheck then
         _G.RCPT_TalentCheck = nil
     end
-    print("[RCPT] TalentCheck module torn down.")
+    print("|cff00ccff[RCPT]|r TalentCheck module torn down.")
 end
 
 _G.RCPT_TalentTeardown = TalentTeardown

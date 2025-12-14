@@ -1,6 +1,6 @@
 ## Interface: 120000
-## Title: RCPT - TalentCheck
-## Notes: Talent & durability UI module (load-on-demand)
+## Title: RCPT - Talent Check
+## Notes: Talent and durability UI module (load-on-demand)
 ## LoadOnDemand: 1
 ## Dependencies: RCPT
 

@@ -1,4 +1,4 @@
--- RCPT-Main.lua
+-- RCPT-PullTimers.lua
 -- Core runtime for RCPT; load-on-demand. Originally from root RCPT.lua.
 
 local f = CreateFrame("Frame")

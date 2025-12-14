@@ -1,7 +1,0 @@
-## Interface: 120000
-## Title: RCPT - Core
-## Notes: Core runtime for RCPT (load-on-demand)
-## LoadOnDemand: 1
-## Dependencies: RCPT
-
-RCPT-Main.lua

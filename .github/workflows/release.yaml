@@ -17,21 +17,37 @@ jobs:
         id: tag
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Prepare release directory
+      - name: Prepare release directories
         run: |
-          mkdir -p release/RCPT
-          cp RCPT/*.lua release/RCPT/
-          cp RCPT/*.toc release/RCPT/
-          cp RCPT/readme.md release/RCPT/
+          set -e
+          mkdir -p release/beta
+          mkdir -p release/retail
+          cp -r RCPT RCPT-PullTimers RCPT-TalentCheck release/beta/
+          cp -r RCPT RCPT-PullTimers RCPT-TalentCheck release/retail/
 
-      - name: Zip addon folder
+      - name: Adjust .toc files for Retail build
         run: |
-          cd release
-          zip -r "RCPT_v${{ steps.tag.outputs.version }}.zip" RCPT
+          set -e
+          for toc in release/retail/RCPT/*.toc release/retail/RCPT-PullTimers/*.toc release/retail/RCPT-TalentCheck/*.toc; do
+            if [ -f "$toc" ]; then
+              sed -E -i '1s/^## Interface:.*$/## Interface: 110207/' "$toc"
+            fi
+          done
+
+      - name: Create Beta zip
+        run: |
+          cd release/beta
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Beta.zip" RCPT RCPT-PullTimers RCPT-TalentCheck
+
+      - name: Create Retail zip
+        run: |
+          cd release/retail
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Retail.zip" RCPT RCPT-PullTimers RCPT-TalentCheck
 
       - name: Upload release to GitHub
         uses: softprops/action-gh-release@v1
         with:
-          files: release/RCPT_v${{ steps.tag.outputs.version }}.zip
+          files: |
+            release/RCPT_v${{ steps.tag.outputs.version }}-Retail.zip,release/RCPT_v${{ steps.tag.outputs.version }}-Beta.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

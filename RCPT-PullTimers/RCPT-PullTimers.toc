@@ -1,0 +1,7 @@
+## Interface: 120000
+## Title: RCPT - Pull Timers
+## Notes: RCPT Pull Timer automation (load-on-demand)
+## LoadOnDemand: 1
+## Dependencies: RCPT
+
+RCPT-PullTimers.lua
