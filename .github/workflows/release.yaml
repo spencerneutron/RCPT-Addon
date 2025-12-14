@@ -3,35 +3,68 @@ name: Build and Release RCPT Addon
 on:
   push:
     tags:
-      - 'v*'  # Triggers on tags like v1.0.0, v1.2.3
-
+      - 'v*'   # v1.0.0, v1.2.3, etc.
+      
+permissions:
+  contents: write
+  
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v3
+        run: |
+          git clone https://github.com/${{ github.repository }} .
+          git checkout ${{ github.ref_name }}
 
       - name: Extract tag version
         id: tag
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Prepare release directory
         run: |
-          mkdir -p release/RCPT
-          cp RCPT/*.lua release/RCPT/
-          cp RCPT/*.toc release/RCPT/
-          cp RCPT/readme.md release/RCPT/
+          echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Zip addon folder
+      - name: Prepare release directories
         run: |
-          cd release
-          zip -r "RCPT_v${{ steps.tag.outputs.version }}.zip" RCPT
+          set -e
+          mkdir -p release/beta release/retail
 
-      - name: Upload release to GitHub
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release/RCPT_v${{ steps.tag.outputs.version }}.zip
+          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/beta/
+          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/retail/
+
+      - name: Adjust .toc files for Retail build
+        run: |
+          set -e
+          for toc in \
+            release/retail/RCPT/*.toc \
+            release/retail/RCPT_PullTimers/*.toc \
+            release/retail/RCPT_TalentCheck/*.toc
+          do
+            [ -f "$toc" ] || continue
+            sed -E -i '1s/^## Interface:.*$/## Interface: 110207/' "$toc"
+          done
+
+      - name: Create Beta zip
+        run: |
+          cd release/beta
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Beta.zip" \
+            RCPT RCPT_PullTimers RCPT_TalentCheck
+
+      - name: Create Retail zip
+        run: |
+          cd release/retail
+          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Retail.zip" \
+            RCPT RCPT_PullTimers RCPT_TalentCheck
+
+      - name: Create GitHub release and upload assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          TAG="v${{ steps.tag.outputs.version }}"
+
+          gh release create "$TAG" \
+            release/RCPT_v${{ steps.tag.outputs.version }}-Retail.zip \
+            release/RCPT_v${{ steps.tag.outputs.version }}-Beta.zip \
+            --title "$TAG" \
+            --notes "Automated release for $TAG"

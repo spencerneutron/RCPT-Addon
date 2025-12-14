@@ -24,7 +24,7 @@
  
 ## Installation
 
-- Place the `RCPT` folder inside your World of Warcraft AddOns directory.
+- Place the `RCPT` folder inside your World of Warcraft AddOns directory, alongside the `RCPT_TalentCheck` and `RCPT_PullTimers` folders
 
 ## Support
 

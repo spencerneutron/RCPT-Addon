@@ -1,0 +1,12 @@
+## Interface: 120000
+## Title: RCPT
+## Notes: Bootstrap manager for RCPT modules (loads core and modules on demand)
+## Author: boolbog
+## Version: 1.1.4
+## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
+
+core.lua
+config.lua
+OptionsBuilder.lua
+Options.lua
+RCPT_Manager.lua
