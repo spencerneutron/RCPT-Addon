@@ -183,32 +183,18 @@ local function CreateReadyOverlay()
                                         end
                                         -- update mini view if showing
                                         if overlay.mini and overlay.mini:IsShown() then
-                                                local ok, status = pcall(GetReadyCheckStatus, "player")
-                                                if not ok then status = nil end
-                                                if overlay.mini.statusIcon and status then
-                                                        if status == "ready" then
-                                                                overlay.mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-                                                        elseif status == "notready" then
-                                                                overlay.mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
-                                                        else
-                                                                overlay.mini.statusIcon:SetTexture(nil)
-                                                        end
-                                                end
-                                                if overlay.mini.durText then
-                                                        overlay.mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5)))
-                                                end
-                                                if overlay.mini.loadoutText then
-                                                        overlay.mini.loadoutText:SetText(loadoutName)
-                                                end
+                                               PopulateMini(overlay.mini)
                                         end
                         end)
                 end
         end)
 
         -- Compact persistent mini overlay shown after the player responds (or if they initiated)
-        local function CreateMiniOverlay(parent)
+                local function CreateMiniOverlay(parent)
                 if overlay.mini then return overlay.mini end
-                local m = CreateFrame("Frame", addonName .. "ReadyMiniOverlay", parent, "BackdropTemplate")
+                -- Use UIParent as the mini overlay's parent so it remains visible
+                -- even when the main `overlay` frame is hidden.
+                local m = CreateFrame("Frame", addonName .. "ReadyMiniOverlay", UIParent, "BackdropTemplate")
                 m:SetSize(240, 28)
                 m:SetFrameStrata("HIGH")
                 m:SetBackdrop({
@@ -244,6 +230,33 @@ local function CreateReadyOverlay()
                 return m
         end
 
+                -- Populate a mini overlay's dynamic data (spec/loadout/durability/status)
+                local function PopulateMini(mini)
+                        pcall(function()
+                                local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                                local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
+                                local ok, status = pcall(GetReadyCheckStatus, "player")
+                                if ok and status then
+                                        if status == "ready" then
+                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                        elseif status == "notready" then
+                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
+                                        else
+                                                mini.statusIcon:SetTexture(nil)
+                                        end
+                                else
+                                        mini.statusIcon:SetTexture(nil)
+                                end
+                                if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5))) end
+                                if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
+                        end)
+                end
+
+                -- allow external callers to create/show the mini overlay
+                overlay.CreateMiniOverlay = function(self)
+                        return CreateMiniOverlay(self)
+                end
+
         function overlay:ShowForReadyCheck()
                 -- Always center and hide Blizzard's ReadyCheckFrame so our overlay fully replaces it
                 self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -269,18 +282,7 @@ local function CreateReadyOverlay()
                                 overlay._hidDefault = nil
                                 overlay:Hide()
                                 -- fill mini
-                                pcall(function()
-                                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
-                                        local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
-                                        local ok2, st = pcall(GetReadyCheckStatus, "player")
-                                        if ok2 and st then
-                                                if st == "ready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-                                                elseif st == "notready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
-                                                else mini.statusIcon:SetTexture(nil) end
-                                        end
-                                        if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5))) end
-                                        if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
-                                end)
+                                                PopulateMini(mini)
                                 mini:Show()
                         end
                 end
@@ -333,22 +335,7 @@ local function CreateReadyOverlay()
                                                                 end
                                                         end
                                                         -- update contents once
-                                                        pcall(function()
-                                                                local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
-                                                                local ok, status = pcall(GetReadyCheckStatus, "player")
-                                                                if ok and status then
-                                                                        if status == "ready" then
-                                                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-                                                                        elseif status == "notready" then
-                                                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
-                                                                        else
-                                                                                mini.statusIcon:SetTexture(nil)
-                                                                        end
-                                                                end
-                                                                local isLow, numLowSlots, avgDur = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
-                                                                if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur or 100) + 0.5))) end
-                                                                if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
-                                                        end)
+                                                        PopulateMini(mini)
 
                                                                 -- hide the primary overlay entirely but keep watcher/timers alive
                                                                 overlay._suppressOnHideClear = true
@@ -374,9 +361,9 @@ local function CreateReadyOverlay()
 
                 if ReadyCheckFrame then
                                 ReadyCheckFrame:HookScript("OnShow", function()
-                                        -- Always show our replacement overlay when Blizzard's ready-check frame appears
-                                        overlay:ShowForReadyCheck()
-                                end)
+                                                                        -- Always show our replacement overlay when Blizzard's ready-check frame appears
+                                                                        overlay:ShowForReadyCheck()
+                                                                end)
 
                                 ReadyCheckFrame:HookScript("OnHide", function()
                                         overlay:Hide()
@@ -511,7 +498,7 @@ local function OnMerchantClosedRecheck(threshold, readyButton)
         end
 end
 
-local function ReadyCheckHandler()
+local function ReadyCheckHandler(initiator)
         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
         local threshold = (TDB and TDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
@@ -552,6 +539,43 @@ local function ReadyCheckHandler()
                                 end
                         end
                 end)
+                -- If the player initiated the ready check, force the compact mini overlay
+                do
+                                local ok, isInitiator = pcall(function()
+                                        if not initiator then return false end
+                                        if UnitIsUnit then
+                                                if UnitIsUnit(initiator, "player") then return true end
+                                        end
+                                        local okn, pname = pcall(UnitName, "player")
+                                        if okn and pname and initiator == pname then return true end
+                                        return false
+                                end)
+                                if ok and isInitiator then
+                                        pcall(function()
+                                                if overlay and overlay.CreateMiniOverlay then
+                                                        local mini = overlay:CreateMiniOverlay(overlay)
+                                                        mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                                        overlay._suppressOnHideClear = true
+                                                        overlay._hidDefault = nil
+                                                        overlay:Hide()
+                                                        -- populate the mini overlay
+                                                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                                                        local isLow2, numLowSlots2, avgDur2 = CheckLowDurability((TDB and TDB.MinDurabilityPercent) or 80)
+                                                        local ok2, st = pcall(GetReadyCheckStatus, "player")
+                                                        if ok2 and st then
+                                                                if st == "ready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                                                elseif st == "notready" then mini.statusIcon:SetTexture("Interface\\Buttons\\UI-GroupLootPass")
+                                                                else mini.statusIcon:SetTexture(nil) end
+                                                        else
+                                                                mini.statusIcon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                                                        end
+                                                        if mini.durText then mini.durText:SetText(string.format("%d%%", math.floor((avgDur2 or 100) + 0.5))) end
+                                                        if mini.loadoutText then mini.loadoutText:SetText(loadoutName) end
+                                                        mini:Show()
+                                                end
+                                        end)
+                                end
+                end
                 if isLow then
                         -- Replacement behavior: disable the ready button and show repair state
                         pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
@@ -586,7 +610,7 @@ local function TalentEventHandler(self, event, ...)
                         if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
                 end
         elseif event == "READY_CHECK" then
-                ReadyCheckHandler()
+                ReadyCheckHandler(select(1, ...))
         end
 end
 
