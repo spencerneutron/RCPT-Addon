@@ -72,7 +72,7 @@ function OptionsBuilder:AddCheck(name, opts)
     return cb
 end
 
--- Add a slider on right column
+-- Add a slider (left column)
 -- opts: {min=number,max=number,step=number,label=string,get=set functions}
 function OptionsBuilder:AddSlider(name, opts)
     opts = opts or {}
@@ -83,8 +83,14 @@ function OptionsBuilder:AddSlider(name, opts)
     s.Text = _G[s:GetName() .. "Text"]
     s.Low = _G[s:GetName() .. "Low"]
     s.High = _G[s:GetName() .. "High"]
+    -- show actual range values on the ends of the slider
+    if s.Low then s.Low:SetText(tostring(opts.min or 1)) end
+    if s.High then s.High:SetText(tostring(opts.max or 100)) end
     if opts.label then s.Text:SetText(opts.label) end
-    self:_place(s, "right")
+    -- add a little vertical padding before and after the slider
+    self.y = self.y - 5
+    self:_place(s, "left")
+    self.y = self.y - 5
     if opts.get then
         local v = opts.get()
         if v then s:SetValue(v) end
@@ -110,10 +116,33 @@ end
 function OptionsBuilder:AddEditBox(name, opts)
     opts = opts or {}
     local eb = CreateFrame("EditBox", name, self.panel, "InputBoxTemplate")
-    eb:SetSize(opts.width or 260, 22)
-    self:_place(eb, "left")
+
+    if opts.label then
+        local lbl = self.panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        lbl:SetText(opts.label)
+        self:_place(lbl, "left")
+        -- move cursor back a bit so the editbox sits closer to the label
+        self.y = self.y + (self.spacing * 0.5)
+        eb:SetSize(opts.width or 260, 22)
+        -- anchor the editbox right under the label to avoid overlaps
+        eb:SetPoint("TOPLEFT", self.panel, "TOPLEFT", self.leftX, self.y)
+        -- advance the cursor as _place would
+        self.y = self.y - self.spacing
+    else
+        eb:SetSize(opts.width or 260, 22)
+        self:_place(eb, "left")
+    end
     eb:SetAutoFocus(false)
-    if opts.get then eb:SetText(opts.get() or "") end
+    if opts.get then
+        eb:SetText(tostring(opts.get() or ""))
+        eb:ClearFocus()
+        if eb.SetCursorPosition then eb:SetCursorPosition(0) end
+        -- provide a refresh helper so callers can update the box later
+        eb.Refresh = function()
+            eb:SetText(tostring(opts.get() or ""))
+            if eb.SetCursorPosition then eb:SetCursorPosition(0) end
+        end
+    end
     if opts.onEnter then eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end) end
     if opts.onSave then eb:SetScript("OnEditFocusLost", function(self) opts.onSave(self:GetText() or "") end) end
     return eb

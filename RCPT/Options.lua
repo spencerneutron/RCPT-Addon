@@ -100,6 +100,7 @@ function Options.Init(addon)
     })
 
     local kwBox = b:AddEditBox("RCPT_CancelKeywordsBox", {
+        label = "Cancel keywords (comma separated)",
         width = 260,
         get = function() return table.concat(DB.cancelKeywords or {}, ", ") end,
         onEnter = true,
