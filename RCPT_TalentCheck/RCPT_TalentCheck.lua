@@ -244,24 +244,17 @@ local function CreateReadyOverlay()
                 return m
         end
 
-        function overlay:ShowForReadyCheck(replaceDefault)
-                if replaceDefault then
-                        self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                        local hid = pcall(function()
-                                if ReadyCheckFrame and ReadyCheckFrame.IsShown and ReadyCheckFrame:IsShown() then
-                                        ReadyCheckFrame:Hide()
-                                        return true
-                                end
-                                return false
-                        end)
-                        self._hidDefault = hid
-                else
-                        if ReadyCheckFrame then
-                                self:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
-                        else
-                                self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        function overlay:ShowForReadyCheck()
+                -- Always center and hide Blizzard's ReadyCheckFrame so our overlay fully replaces it
+                self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                local hid = pcall(function()
+                        if ReadyCheckFrame and ReadyCheckFrame.IsShown and ReadyCheckFrame:IsShown() then
+                                ReadyCheckFrame:Hide()
+                                return true
                         end
-                end
+                        return false
+                end)
+                self._hidDefault = hid
                 self:Show()
 
                 -- If the player already responded (or is the initiator), show the compact mini view immediately
@@ -269,18 +262,10 @@ local function CreateReadyOverlay()
                         local ok, status = pcall(GetReadyCheckStatus, "player")
                         if ok and status and (status == "ready" or status == "notready") then
                                 local mini = CreateMiniOverlay(self)
-                                if replaceDefault then
-                                        mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                                else
-                                        if ReadyCheckFrame then
-                                                mini:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
-                                        else
-                                                mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                                        end
-                                end
+                                mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
                                 -- hide the primary overlay entirely but keep watcher/timers alive
                                 overlay._suppressOnHideClear = true
-                                -- if we previously hid Blizzard's ReadyCheckFrame, don't re-show it later
+                                -- do not re-show Blizzard's ReadyCheckFrame later
                                 overlay._hidDefault = nil
                                 overlay:Hide()
                                 -- fill mini
@@ -388,21 +373,15 @@ local function CreateReadyOverlay()
         end
 
                 if ReadyCheckFrame then
-                        ReadyCheckFrame:HookScript("OnShow", function()
-                                if TDB and TDB.ReplaceReadyCheck then
-                                        return
-                                end
-                                overlay:SetPoint("BOTTOM", ReadyCheckFrame, "TOP", 0, 8)
-                                overlay:Show()
-                        end)
+                                ReadyCheckFrame:HookScript("OnShow", function()
+                                        -- Always show our replacement overlay when Blizzard's ready-check frame appears
+                                        overlay:ShowForReadyCheck()
+                                end)
 
-                        ReadyCheckFrame:HookScript("OnHide", function()
-                                if TDB and TDB.ReplaceReadyCheck then
-                                        return
-                                end
-                                overlay:Hide()
-                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
-                        end)
+                                ReadyCheckFrame:HookScript("OnHide", function()
+                                        overlay:Hide()
+                                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
+                                end)
                 end
 
         overlay:SetScript("OnHide", function(self)
@@ -554,8 +533,7 @@ local function ReadyCheckHandler()
 
         CreateReadyOverlay()
         if overlay then
-                local replace = TDB and TDB.ReplaceReadyCheck
-                overlay:ShowForReadyCheck(replace)
+                overlay:ShowForReadyCheck()
                 pcall(function()
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         overlay.specText:SetText(specName or "Unknown Spec")
@@ -574,17 +552,9 @@ local function ReadyCheckHandler()
                                 end
                         end
                 end)
-
                 if isLow then
-                        if not replace then
-                                if ReadyCheckFrame and ReadyCheckFrameNoButton then
-                                        pcall(CreateChangeTalentsButton, ReadyCheckFrame, ReadyCheckFrameNoButton)
-                                end
-                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Hide then ReadyCheckFrameYesButton:Hide() end end)
-                                pcall(ShowRepairText, ReadyCheckFrame, ReadyCheckFrameYesButton)
-                        else
-                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
-                        end
+                        -- Replacement behavior: disable the ready button and show repair state
+                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
 
                         if not frame.merchantHandler then
                                 local h = CreateFrame("Frame")
@@ -595,13 +565,8 @@ local function ReadyCheckHandler()
                                 frame.merchantHandler = h
                         end
                 else
-                        if not (TDB and TDB.ReplaceReadyCheck) then
-                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end end)
-                                pcall(HideRepairText)
-                        else
-                                pcall(HideRepairText)
-                                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
-                        end
+                        pcall(HideRepairText)
+                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
                         if frame.merchantHandler then
                                 pcall(function()
                                         frame.merchantHandler:UnregisterEvent("MERCHANT_CLOSED")
