@@ -1,4 +1,7 @@
 ### [Get it on Wago](https://addons.wago.io/addons/rcpt-addon)
+### [Get it on CurseForge](https://www.curseforge.com/wow/addons/ready-check-pull-timer)
+### [Get it on GitHub](https://github.com/spencerneutron/RCPT-Addon/releases)
+
 
 # RCPT
 ### Ready Check, Pull Timer + TalentCheck
