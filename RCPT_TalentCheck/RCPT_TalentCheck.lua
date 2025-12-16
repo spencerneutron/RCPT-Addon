@@ -117,20 +117,20 @@ local function CreateReadyOverlay()
 
         -- Hold-to-override state
         overlay._overrideReady = false
+        overlay._overrideLocked = false
 
         -- Click behavior: allow exactly one click when override is granted
         overlay.readyBtn:SetScript("OnClick", function(self)
+                pcall(Debug, string.format("RCPT: overlay.readyBtn clicked; _overrideReady=%s, _overrideLocked=%s", tostring(overlay and overlay._overrideReady), tostring(overlay and overlay._overrideLocked)))
                 if overlay._overrideReady then
                         overlay._overrideReady = false
                         -- perform the ready action (attempt to click Blizzard's button)
                         pcall(function()
                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then
-                                        ReadyCheckFrameYesButton:Click()
-                                elseif ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable and ReadyCheckFrameYesButton.Enable then
-                                        -- best-effort fallback: briefly enable/disable to avoid leaving it enabled
-                                        ReadyCheckFrameYesButton:Disable(); ReadyCheckFrameYesButton:Enable()
-                                        if ReadyCheckFrameYesButton.Click then pcall(ReadyCheckFrameYesButton.Click, ReadyCheckFrameYesButton) end
-                                end
+                                                ReadyCheckFrameYesButton:Click()
+                                        else
+                                                pcall(Debug, "RCPT: ReadyCheckFrameYesButton click not available; skipping disable/enable fallback")
+                                        end
                         end)
                         -- immediately re-disable the overlay ready button
                         if self.Disable then pcall(self.Disable, self) end
@@ -139,7 +139,13 @@ local function CreateReadyOverlay()
                         return
                 end
                 -- otherwise, default click behavior (no-op when disabled)
-                pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then ReadyCheckFrameYesButton:Click() elseif ReadyCheckFrameYesButton then ReadyCheckFrameYesButton:Disable(); ReadyCheckFrameYesButton:Enable() end end)
+                pcall(function()
+                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then
+                                ReadyCheckFrameYesButton:Click()
+                        else
+                                pcall(Debug, "RCPT: ReadyCheckFrameYesButton click not available; skipping fallback")
+                        end
+                end)
         end)
 
         -- Progress StatusBar (hidden by default)
@@ -199,11 +205,41 @@ local function CreateReadyOverlay()
         helperOut:SetOrder(1)
         helperOutGroup:SetScript("OnFinished", function()
                 if overlay and overlay.readyBtn and overlay.readyBtn.helper then
-                        overlay.readyBtn.helper:Hide()
-                        overlay.readyBtn.helper:SetAlpha(0)
+                        -- only hide the helper if the mouse is not currently over
+                        -- the ready button (the hitbox updates `_hold.mouseOver`).
+                        local stillOver = false
+                        if overlay.readyBtn and overlay.readyBtn.hitbox then
+                                local ok, res = pcall(CursorIsOverFrame, overlay.readyBtn.hitbox)
+                                if ok and res then stillOver = true end
+                        end
+                        if not stillOver then
+                                overlay.readyBtn.helper:Hide()
+                                overlay.readyBtn.helper:SetAlpha(0)
+                        else
+                                -- ensure helper remains fully visible
+                                overlay.readyBtn.helper:SetAlpha(1)
+                        end
                 end
         end)
         overlay.readyBtn.helper.fadeOut = helperOutGroup
+
+        -- Robust cursor-inside-frame check (works independent of OnEnter/OnLeave)
+        local function CursorIsOverFrame(f)
+                if not f then return false end
+                local ok, cx, cy = pcall(GetCursorPosition)
+                if not ok or not cx or not cy then return false end
+                local uiScale = UIParent and UIParent:GetScale() or 1
+                cx = cx / uiScale
+                cy = cy / uiScale
+                local ok2, left, right, top, bottom = pcall(function()
+                        return f:GetLeft(), f:GetRight(), f:GetTop(), f:GetBottom()
+                end)
+                if not ok2 or not left or not right or not top or not bottom then return false end
+                if cx >= left and cx <= right and cy >= bottom and cy <= top then
+                        return true
+                end
+                return false
+        end
 
         -- Hold tracking state
         overlay.readyBtn._hold = { elapsed = 0, required = 1.5, tracking = false, mouseOver = false }
@@ -225,9 +261,104 @@ local function CreateReadyOverlay()
         end)
         overlay._holdFrame:Hide()
 
+        -- Invisible hitbox that sits over the Ready button when it's disabled so
+        -- we can still receive mouse/keyboard modifiers to start the override.
+        -- Use a top-level Button for reliable mouse hit-testing and place it
+        -- above everything in that area so it receives events even when the
+        -- ready button or its children would otherwise intercept mouse input.
+        overlay.readyBtn.hitbox = CreateFrame("Button", addonName .. "OverlayReadyHitbox", UIParent)
+        overlay.readyBtn.hitbox:SetAllPoints(overlay.readyBtn)
+        overlay.readyBtn.hitbox:EnableMouse(true)
+        overlay.readyBtn.hitbox:SetHitRectInsets(0, 0, 0, 0)
+        pcall(function()
+                overlay.readyBtn.hitbox:SetFrameStrata("DIALOG")
+                local baseLevel = overlay:GetFrameLevel() or 0
+                overlay.readyBtn.hitbox:SetFrameLevel(baseLevel + 200)
+        end)
+        overlay.readyBtn.hitbox:Hide()
+
+        overlay.readyBtn.hitbox:SetScript("OnEnter", function(self)
+                local btn = overlay.readyBtn
+                btn._hold.mouseOver = true
+                -- If Ctrl already held, start override immediately. Do not
+                -- manipulate helper visibility here; OnUpdate will manage it.
+                if not btn:IsEnabled() and IsControlKeyDown() then
+                        pcall(function() overlay:StartOverride(btn) end)
+                end
+        end)
+
+        overlay.readyBtn.hitbox:SetScript("OnLeave", function(self)
+                local btn = overlay.readyBtn
+                btn._hold.mouseOver = false
+                if btn._hold.tracking then
+                        pcall(function() overlay:CancelOverride() end)
+                end
+        end)
+
+        overlay.readyBtn.hitbox:SetScript("OnUpdate", function(self)
+                local hb = overlay.readyBtn._hold
+                local inside = CursorIsOverFrame(self)
+                hb.mouseOver = inside
+
+                -- Helper visibility management: centralize here to avoid
+                -- conflicting OnEnter/OnLeave events causing flicker.
+                local helper = overlay.readyBtn.helper
+                if inside then
+                        -- stop any fadeOut and ensure helper is visible
+                        if helper then
+                                pcall(function()
+                                        if helper.fadeOut and helper.fadeOut.IsPlaying and helper.fadeOut:IsPlaying() then pcall(helper.fadeOut.Stop, helper.fadeOut) end
+                                        if not helper:IsShown() and helper.fadeIn and helper.fadeIn.Play then helper:Show(); pcall(helper.fadeIn.Play, helper.fadeIn) end
+                                        helper:SetAlpha(1)
+                                end)
+                        end
+                        if IsControlKeyDown() then
+                                -- only start if not locked
+                                if not hb.tracking and not overlay.readyBtn:IsEnabled() and not overlay._overrideLocked then
+                                        overlay:StartOverride(overlay.readyBtn)
+                                end
+                        else
+                                if hb.tracking then
+                                        overlay:CancelOverride()
+                                end
+                                -- clear lock when modifier released
+                                if overlay._overrideLocked then overlay._overrideLocked = false; overlay._suspendPeriodic = nil end
+                        end
+                else
+                        -- not inside: if helper visible and not tracking, initiate fadeOut
+                        if helper and helper:IsShown() and not hb.tracking then
+                                pcall(function()
+                                        if helper.fadeIn and helper.fadeIn.IsPlaying and helper.fadeIn:IsPlaying() then pcall(helper.fadeIn.Stop, helper.fadeIn) end
+                                        if helper.fadeOut and helper.fadeOut.Play then pcall(helper.fadeOut.Play, helper.fadeOut) end
+                                end)
+                        end
+                        if hb.tracking then overlay:CancelOverride() end
+                        if not IsControlKeyDown() and overlay._overrideLocked then overlay._overrideLocked = false end
+                end
+        end)
+
+        -- Forward clicks on the hitbox to the real ready button while override is active
+        overlay.readyBtn.hitbox:SetScript("OnMouseUp", function(self, button)
+                if button ~= "LeftButton" then return end
+                if not overlay then return end
+                if not (overlay._overrideReady or overlay._overrideLocked) then return end
+                pcall(Debug, string.format("RCPT: Hitbox forwarding click to overlay.readyBtn; _overrideReady=%s, _overrideLocked=%s", tostring(overlay._overrideReady), tostring(overlay._overrideLocked)))
+                pcall(function()
+                        if overlay.readyBtn and overlay.readyBtn.IsEnabled and overlay.readyBtn:IsEnabled() then
+                                if overlay.readyBtn.Click then
+                                        overlay.readyBtn:Click()
+                                else
+                                        local h = overlay.readyBtn:GetScript("OnClick")
+                                        if h then pcall(h, overlay.readyBtn) end
+                                end
+                        end
+                end)
+        end)
+
         -- Start / cancel / complete helpers
         function overlay:StartOverride(btn)
                 if not btn then btn = overlay.readyBtn end
+                if self._overrideLocked then return end
                 local hb = btn._hold
                 if hb.tracking then return end
                 hb.tracking = true
@@ -276,6 +407,12 @@ local function CreateReadyOverlay()
 
                 -- grant a single ready press
                 overlay._overrideReady = true
+                -- lock starting new overrides until the modifier is released
+                overlay._overrideLocked = true
+                -- temporary freeze to avoid periodic checks re-disabling immediately
+                if GetTime then overlay._freezeUntil = GetTime() + 0.6 end
+                -- suspend the periodic overlay updater while the override is being consumed
+                overlay._suspendPeriodic = true
                 if btn.Enable then pcall(btn.Enable, btn) end
 
                 -- if unused after timeout, revoke
@@ -324,13 +461,14 @@ local function CreateReadyOverlay()
                 local hb = self._hold
                 if hb.mouseOver then
                         if IsControlKeyDown() then
-                                if not hb.tracking and not self:IsEnabled() then
+                                if not hb.tracking and not self:IsEnabled() and not overlay._overrideLocked then
                                         overlay:StartOverride(self)
                                 end
                         else
                                 if hb.tracking then
                                         overlay:CancelOverride()
                                 end
+                                if overlay._overrideLocked then overlay._overrideLocked = false; overlay._suspendPeriodic = nil end
                         end
                 end
         end)
@@ -375,6 +513,8 @@ local function CreateReadyOverlay()
         overlay.updateTicker = 0
         overlay:SetScript("OnUpdate", function(self, elapsed)
                 if not self:IsShown() then return end
+                -- if periodic checks are suspended for this ready check, skip
+                if self._suspendPeriodic then return end
                 self.updateTicker = self.updateTicker + elapsed
                 if self.updateTicker >= 0.5 then
                         self.updateTicker = 0
@@ -390,10 +530,14 @@ local function CreateReadyOverlay()
                                                 overlay.repairText:Show()
                                                 overlay.repairText:SetText("REPAIR NEEDED")
                                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
-                                                        ReadyCheckFrameYesButton:Disable()
-                                                end
+                                                                pcall(Debug, "RCPT: skipping disabling Blizzard ReadyCheckFrameYesButton (periodic)")
+                                                        end
                                                 if overlay.readyBtn and overlay.readyBtn.Disable then
-                                                        overlay.readyBtn:Disable()
+                                                        local now = (GetTime and GetTime()) or 0
+                                                        if not overlay._freezeUntil or now >= overlay._freezeUntil then
+                                                                overlay.readyBtn:Disable()
+                                                                if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Show() end) end
+                                                        end
                                                 end
                                         else
                                                 overlay.repairText:Hide()
@@ -404,6 +548,7 @@ local function CreateReadyOverlay()
                                                         -- cancel any in-progress hold when durability recovers
                                                         pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
                                                         overlay.readyBtn:Enable()
+                                                        if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Hide() end) end
                                                 end
                                         end
                                         -- update mini view if showing
@@ -621,6 +766,8 @@ local function CreateReadyOverlay()
                         pcall(function() if ReadyCheckFrame and ReadyCheckFrame.Show then ReadyCheckFrame:Show() end end)
                         self._hidDefault = nil
                 end
+                -- clear any temporary freeze/lock state so future ready checks behave normally
+                pcall(function() self._freezeUntil = nil; self._overrideLocked = false; self._overrideReady = false; self._suspendPeriodic = nil end)
         end)
 
         overlay:Hide()
@@ -758,12 +905,16 @@ local function ReadyCheckHandler(initiator)
                         if isLow then
                                 overlay.repairText:Show()
                                 overlay.repairText:SetText("REPAIR NEEDED")
-                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
-                                        ReadyCheckFrameYesButton:Disable()
-                                end
-                                if overlay and overlay.readyBtn and overlay.readyBtn.Disable then
-                                        overlay.readyBtn:Disable()
-                                end
+                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
+                                                        ReadyCheckFrameYesButton:Disable()
+                                                end
+                                        if overlay and overlay.readyBtn and overlay.readyBtn.Disable then
+                                                local now = (GetTime and GetTime()) or 0
+                                                if not overlay._freezeUntil or now >= overlay._freezeUntil then
+                                                        overlay.readyBtn:Disable()
+                                                        if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Show() end) end
+                                                end
+                                        end
                         else
                                 overlay.repairText:Hide()
                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
@@ -772,7 +923,8 @@ local function ReadyCheckHandler(initiator)
                                 if overlay and overlay.readyBtn and overlay.readyBtn.Enable then
                                         -- cancel any in-progress hold when durability recovers
                                         pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
-                                        overlay.readyBtn:Enable()
+                                                        overlay.readyBtn:Enable()
+                                                        if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Hide() end) end
                                 end
                         end
                 end)
@@ -815,9 +967,9 @@ local function ReadyCheckHandler(initiator)
                                         end)
                                 end
                 end
-                if isLow then
-                        -- Replacement behavior: disable the ready button and show repair state
-                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then ReadyCheckFrameYesButton:Disable() end end)
+                        if isLow then
+                        -- Replacement behavior: show repair state (do not disable Blizzard buttons)
+                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then pcall(Debug, "RCPT: skipping disabling Blizzard ReadyCheckFrameYesButton (ready handler)") end end)
 
                         if not frame.merchantHandler then
                                 local h = CreateFrame("Frame")
@@ -885,6 +1037,23 @@ local function ensureExports()
 
         function _G.RCPT_TalentCheck.SimulateReadyCheckEvent()
                 ReadyCheckHandler()
+        end
+
+        -- Helpers for manual testing: force start/complete the hold-to-override
+        function _G.RCPT_TalentCheck.ForceStartOverride()
+                pcall(function()
+                        if overlay and overlay.StartOverride and overlay.readyBtn then
+                                overlay:StartOverride(overlay.readyBtn)
+                        end
+                end)
+        end
+
+        function _G.RCPT_TalentCheck.ForceCompleteOverride()
+                pcall(function()
+                        if overlay and overlay.CompleteOverride then
+                                overlay:CompleteOverride()
+                        end
+                end)
         end
 end
 
