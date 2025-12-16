@@ -58,7 +58,7 @@ jobs:
 
           # Build zip without altering any TOCs
           cd release
-          zip -r "RCPT_${BASE}_Retail.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
+          zip -r "RCPT_${BASE}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
           # Generate a release.json with only retail metadata
           cat > "release.json" <<EOF
@@ -67,7 +67,7 @@ jobs:
               {
                 "name": "RCPT",
                 "version": "${BASE}",
-                "filename": "RCPT_${BASE}_Retail.zip",
+                "filename": "RCPT_${BASE}.zip",
                 "nolib": false,
                 "metadata": [
                   {
