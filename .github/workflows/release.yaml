@@ -4,67 +4,93 @@ on:
   push:
     tags:
       - 'v*'   # v1.0.0, v1.2.3, etc.
-      
+
 permissions:
   contents: write
-  
+
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
-        run: |
-          git clone https://github.com/${{ github.repository }} .
-          git checkout ${{ github.ref_name }}
+        uses: actions/checkout@v4
 
       - name: Extract tag version
         id: tag
-        run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare release directories
-        run: |
-          set -e
-          mkdir -p release/beta release/retail
-
-          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/beta/
-          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/retail/
-
-      - name: Adjust .toc files for Retail build
+      - name: Prepare staging directory
         run: |
           set -e
+          rm -rf release
+          mkdir -p release/RCPT
+
+          # Copy addon folders into a single package root
+          cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/
+
+      - name: Normalize TOC files (Retail default + Beta variant)
+        run: |
+          set -e
+
+          # Retail is now the canonical/default TOC
           for toc in \
-            release/retail/RCPT/*.toc \
-            release/retail/RCPT_PullTimers/*.toc \
-            release/retail/RCPT_TalentCheck/*.toc
+            release/RCPT/*.toc \
+            release/RCPT_PullTimers/*.toc \
+            release/RCPT_TalentCheck/*.toc
           do
             [ -f "$toc" ] || continue
+
+            base="${toc%.toc}"
+
+            # Write Retail interface directly into the main TOC
             sed -E -i '1s/^## Interface:.*$/## Interface: 110207/' "$toc"
+
+            # Generate a Beta TOC alongside it
+            cp "$toc" "${base}_Beta.toc"
+            sed -E -i '1s/^## Interface:.*$/## Interface: 120001/' "${base}_Beta.toc"
           done
 
-      - name: Create Beta zip
+      - name: Create unified addon zip
         run: |
-          cd release/beta
-          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Beta.zip" \
+          cd release
+          zip -r "RCPT_v${{ steps.tag.outputs.version }}.zip" \
             RCPT RCPT_PullTimers RCPT_TalentCheck
 
-      - name: Create Retail zip
+      - name: Generate release.json
         run: |
-          cd release/retail
-          zip -r "../RCPT_v${{ steps.tag.outputs.version }}-Retail.zip" \
-            RCPT RCPT_PullTimers RCPT_TalentCheck
+          cat > release/release.json <<EOF
+          {
+            "releases": [
+              {
+                "name": "RCPT",
+                "version": "${{ steps.tag.outputs.version }}",
+                "filename": "RCPT_v${{ steps.tag.outputs.version }}.zip",
+                "nolib": false,
+                "metadata": [
+                  {
+                    "flavor": "mainline",
+                    "interface": 110207
+                  },
+                  {
+                    "flavor": "beta",
+                    "interface": 120001
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
 
       - name: Create GitHub release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-
           TAG="v${{ steps.tag.outputs.version }}"
 
           gh release create "$TAG" \
-            release/RCPT_v${{ steps.tag.outputs.version }}-Retail.zip \
-            release/RCPT_v${{ steps.tag.outputs.version }}-Beta.zip \
+            release/RCPT_v${{ steps.tag.outputs.version }}.zip \
+            release/release.json \
             --title "$TAG" \
-            --notes "Automated release for $TAG"
+            --notes "Automated unified Retail/Beta release"
