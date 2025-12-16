@@ -82,7 +82,7 @@ jobs:
 
           # Publish the Retail release on GitHub
           gh release create "$BASE" \
-            "RCPT_${BASE}_Retail.zip" "release.json" \
+            "RCPT_${BASE}.zip" "release.json" \
             --title "$BASE" \
             --notes "Retail release for $BASE"
 
