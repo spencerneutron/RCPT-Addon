@@ -114,8 +114,175 @@ local function CreateReadyOverlay()
         overlay.readyBtn:SetSize(80, 22)
         overlay.readyBtn:SetPoint("BOTTOMRIGHT", -12, 10)
         overlay.readyBtn:SetText("Ready")
-        overlay.readyBtn:SetScript("OnClick", function()
+
+        -- Hold-to-override state
+        overlay._overrideReady = false
+
+        -- Click behavior: allow exactly one click when override is granted
+        overlay.readyBtn:SetScript("OnClick", function(self)
+                if overlay._overrideReady then
+                        overlay._overrideReady = false
+                        -- perform the ready action (attempt to click Blizzard's button)
+                        pcall(function()
+                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then
+                                        ReadyCheckFrameYesButton:Click()
+                                elseif ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable and ReadyCheckFrameYesButton.Enable then
+                                        -- best-effort fallback: briefly enable/disable to avoid leaving it enabled
+                                        ReadyCheckFrameYesButton:Disable(); ReadyCheckFrameYesButton:Enable()
+                                        if ReadyCheckFrameYesButton.Click then pcall(ReadyCheckFrameYesButton.Click, ReadyCheckFrameYesButton) end
+                                end
+                        end)
+                        -- immediately re-disable the overlay ready button
+                        if self.Disable then pcall(self.Disable, self) end
+                        -- clear visuals
+                        if overlay.CancelOverride then pcall(overlay.CancelOverride, overlay) end
+                        return
+                end
+                -- otherwise, default click behavior (no-op when disabled)
                 pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then ReadyCheckFrameYesButton:Click() elseif ReadyCheckFrameYesButton then ReadyCheckFrameYesButton:Disable(); ReadyCheckFrameYesButton:Enable() end end)
+        end)
+
+        -- Progress StatusBar (hidden by default)
+        overlay.readyBtn.progress = CreateFrame("StatusBar", nil, overlay.readyBtn)
+        overlay.readyBtn.progress:SetPoint("LEFT", overlay.readyBtn, "LEFT", 0, 0)
+        overlay.readyBtn.progress:SetPoint("RIGHT", overlay.readyBtn, "RIGHT", 0, 0)
+        overlay.readyBtn.progress:SetPoint("BOTTOM", overlay.readyBtn, "BOTTOM", 0, 0)
+        overlay.readyBtn.progress:SetHeight(overlay.readyBtn:GetHeight())
+        overlay.readyBtn.progress:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        overlay.readyBtn.progress:GetStatusBarTexture():SetHorizTile(false)
+        overlay.readyBtn.progress:SetStatusBarColor(0.2, 0.6, 1, 0.35)
+        overlay.readyBtn.progress:SetMinMaxValues(0, 1)
+        overlay.readyBtn.progress:SetValue(0)
+        overlay.readyBtn.progress:Hide()
+
+        -- Glow texture + subtle pulse animation
+        overlay.readyBtn.glow = overlay.readyBtn:CreateTexture(nil, "ARTWORK")
+        overlay.readyBtn.glow:SetAllPoints(overlay.readyBtn)
+        overlay.readyBtn.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+        overlay.readyBtn.glow:SetBlendMode("ADD")
+        overlay.readyBtn.glow:SetAlpha(0)
+        local glowAG = overlay.readyBtn.glow:CreateAnimationGroup()
+        local gIn = glowAG:CreateAnimation("Alpha")
+        gIn:SetFromAlpha(0)
+        gIn:SetToAlpha(0.5)
+        gIn:SetDuration(0.8)
+        gIn:SetOrder(1)
+        local gOut = glowAG:CreateAnimation("Alpha")
+        gOut:SetFromAlpha(0.5)
+        gOut:SetToAlpha(0.12)
+        gOut:SetDuration(0.8)
+        gOut:SetOrder(2)
+        glowAG:SetLooping("REPEAT")
+        overlay.readyBtn.glowAnim = glowAG
+
+        -- Helper text below the button
+        overlay.readyBtn.helper = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        overlay.readyBtn.helper:SetPoint("TOP", overlay.readyBtn, "BOTTOM", 0, -4)
+        overlay.readyBtn.helper:SetText("Hold Ctrl to override (1.5s)")
+        overlay.readyBtn.helper:SetTextColor(0.92, 0.92, 0.78)
+        overlay.readyBtn.helper:Hide()
+
+        -- Hold tracking state
+        overlay.readyBtn._hold = { elapsed = 0, required = 1.5, tracking = false, mouseOver = false }
+
+        -- Lightweight OnUpdate tracker frame; shown only while tracking
+        overlay._holdFrame = overlay._holdFrame or CreateFrame("Frame")
+        overlay._holdFrame:SetScript("OnUpdate", function(_, elapsed)
+                if not overlay or not overlay.readyBtn then return end
+                local hb = overlay.readyBtn._hold
+                if not hb.tracking then return end
+                hb.elapsed = hb.elapsed + elapsed
+                local frac = hb.elapsed / hb.required
+                if frac > 1 then frac = 1 end
+                overlay.readyBtn.progress:SetValue(frac)
+                if frac >= 1 then
+                        -- complete override
+                        if overlay.CompleteOverride then pcall(overlay.CompleteOverride, overlay) end
+                end
+        end)
+        overlay._holdFrame:Hide()
+
+        -- Start / cancel / complete helpers
+        function overlay:StartOverride(btn)
+                if not btn then btn = overlay.readyBtn end
+                local hb = btn._hold
+                if hb.tracking then return end
+                hb.tracking = true
+                hb.elapsed = 0
+                btn.progress:SetValue(0)
+                btn.progress:Show()
+                if btn.glowAnim and btn.glowAnim.Play then pcall(btn.glowAnim.Play, btn.glowAnim) end
+                if btn.helper then btn.helper:Show() end
+                overlay._holdFrame:Show()
+        end
+
+        function overlay:CancelOverride()
+                if not overlay or not overlay.readyBtn then return end
+                local btn = overlay.readyBtn
+                local hb = btn._hold
+                hb.tracking = false
+                hb.elapsed = 0
+                btn.progress:Hide()
+                btn.progress:SetValue(0)
+                if btn.glowAnim and btn.glowAnim.Stop then pcall(btn.glowAnim.Stop, btn.glowAnim) end
+                if btn.helper then btn.helper:Hide() end
+                overlay._holdFrame:Hide()
+        end
+
+        function overlay:CompleteOverride()
+                if not overlay or not overlay.readyBtn then return end
+                local btn = overlay.readyBtn
+                local hb = btn._hold
+                hb.tracking = false
+                hb.elapsed = hb.required
+                btn.progress:SetValue(1)
+                if btn.glowAnim and btn.glowAnim.Stop then pcall(btn.glowAnim.Stop, btn.glowAnim) end
+                if btn.helper then btn.helper:Hide() end
+                overlay._holdFrame:Hide()
+
+                -- grant a single ready press
+                overlay._overrideReady = true
+                if btn.Enable then pcall(btn.Enable, btn) end
+
+                -- if unused after timeout, revoke
+                if C_Timer then
+                        C_Timer.After(4, function()
+                                if overlay and overlay._overrideReady then
+                                        overlay._overrideReady = false
+                                        if overlay.readyBtn and overlay.readyBtn.Disable then pcall(overlay.readyBtn.Disable, overlay.readyBtn) end
+                                        if overlay and overlay.CancelOverride then pcall(overlay.CancelOverride, overlay) end
+                                end
+                        end)
+                end
+        end
+
+        -- Mouse enter/leave hooks to enforce "mouse leaves button cancels"
+        overlay.readyBtn:SetScript("OnEnter", function(self)
+                self._hold.mouseOver = true
+                -- begin if Ctrl is held and button is currently disabled due to durability
+                if not self:IsEnabled() and IsControlKeyDown() then
+                        pcall(function() overlay:StartOverride(self) end)
+                end
+        end)
+        overlay.readyBtn:SetScript("OnLeave", function(self)
+                self._hold.mouseOver = false
+                pcall(function() overlay:CancelOverride() end)
+        end)
+
+        -- Watch for modifier changes when mouse is over
+        overlay.readyBtn:SetScript("OnUpdate", function(self)
+                local hb = self._hold
+                if hb.mouseOver then
+                        if IsControlKeyDown() then
+                                if not hb.tracking and not self:IsEnabled() then
+                                        overlay:StartOverride(self)
+                                end
+                        else
+                                if hb.tracking then
+                                        overlay:CancelOverride()
+                                end
+                        end
+                end
         end)
 
         overlay.notReadyBtn = CreateFrame("Button", addonName .. "OverlayNotReady", overlay, "UIPanelButtonTemplate")
@@ -175,10 +342,18 @@ local function CreateReadyOverlay()
                                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
                                                         ReadyCheckFrameYesButton:Disable()
                                                 end
+                                                if overlay.readyBtn and overlay.readyBtn.Disable then
+                                                        overlay.readyBtn:Disable()
+                                                end
                                         else
                                                 overlay.repairText:Hide()
                                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
                                                         ReadyCheckFrameYesButton:Enable()
+                                                end
+                                                if overlay.readyBtn and overlay.readyBtn.Enable then
+                                                        -- cancel any in-progress hold when durability recovers
+                                                        pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
+                                                        overlay.readyBtn:Enable()
                                                 end
                                         end
                                         -- update mini view if showing
@@ -268,6 +443,8 @@ local function CreateReadyOverlay()
                         return false
                 end)
                 self._hidDefault = hid
+                -- ensure any prior override state isn't lingering when showing
+                pcall(function() if self.CancelOverride then self:CancelOverride() end end)
                 self:Show()
 
                 -- If the player already responded (or is the initiator), show the compact mini view immediately
@@ -377,6 +554,8 @@ local function CreateReadyOverlay()
                         self._suppressOnHideClear = nil
                         return
                 end
+                -- ensure any override visuals / timers are cleared
+                pcall(function() if self.CancelOverride then self:CancelOverride() end end)
                 if self._autoHideTimer then
                         pcall(function() self._autoHideTimer:Cancel() end)
                         self._autoHideTimer = nil
@@ -532,10 +711,18 @@ local function ReadyCheckHandler(initiator)
                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
                                         ReadyCheckFrameYesButton:Disable()
                                 end
+                                if overlay and overlay.readyBtn and overlay.readyBtn.Disable then
+                                        overlay.readyBtn:Disable()
+                                end
                         else
                                 overlay.repairText:Hide()
                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
                                         ReadyCheckFrameYesButton:Enable()
+                                end
+                                if overlay and overlay.readyBtn and overlay.readyBtn.Enable then
+                                        -- cancel any in-progress hold when durability recovers
+                                        pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
+                                        overlay.readyBtn:Enable()
                                 end
                         end
                 end)
@@ -555,6 +742,8 @@ local function ReadyCheckHandler(initiator)
                                                 if overlay and overlay.CreateMiniOverlay then
                                                         local mini = overlay:CreateMiniOverlay(overlay)
                                                         mini:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                                                        -- ensure any in-progress override is cleared before hiding
+                                                        pcall(function() if overlay and overlay.CancelOverride then overlay:CancelOverride() end end)
                                                         overlay._suppressOnHideClear = true
                                                         overlay._hidDefault = nil
                                                         overlay:Hide()
