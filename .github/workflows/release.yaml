@@ -1,9 +1,9 @@
-name: Build and Release RCPT Addon
+name: Build and Publish RCPT Addon
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'   # catches both vX.Y.Z and vX.Y.Z-beta
 
 permissions:
   contents: write
@@ -13,69 +13,114 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RETAIL_INTERFACE: 110207   # default Retail interface
-      BETA_INTERFACE:   120001   # default Beta/PTR interface
+      RETAIL_INTERFACE: 110207
+      BETA_INTERFACE:   120001
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Extract tag version
+      - name: Extract tag name
         id: tag
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare staging directory
+      - name: Decide release mode
+        id: decide
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          BASE="${TAG%-beta}"          # strip -beta suffix if present
+          IS_BETA="false"
+          if [[ "$TAG" == *"-beta"* ]]; then
+            IS_BETA="true"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "is_beta=$IS_BETA" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare addon folder
         run: |
           set -e
           rm -rf release
-          mkdir -p release/RCPT
+          mkdir -p release
           cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/
 
-      - name: Normalize TOC files (Retail default + Beta variant)
+      - name: If retail build needed, create retail release
+        if: steps.decide.outputs.is_beta == 'false'
         run: |
           set -e
-          echo "Using Retail interface: $RETAIL_INTERFACE"
-          echo "Using Beta interface:   $BETA_INTERFACE"
+          BASE="${{ steps.decide.outputs.base }}"
+          echo "Generating Retail release for $BASE"
 
+          # Ensure retail TOC is unchanged
+          # (the files already have Retail interface assumed correct)
+
+          cd release
+          zip -r "RCPT_${BASE}_Retail.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
+
+          # Create release.json for retail
+          cat > "release.json" <<EOF
+          {
+            "releases": [
+              {
+                "name": "RCPT",
+                "version": "${BASE}",
+                "filename": "RCPT_${BASE}_Retail.zip",
+                "nolib": false,
+                "metadata": [
+                  {
+                    "flavor": "mainline",
+                    "interface": $RETAIL_INTERFACE
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
+          # Create GitHub release
+          gh release create "$BASE" \
+            "RCPT_${BASE}_Retail.zip" "release.json" \
+            --title "$BASE" --notes "Retail release for $BASE"
+
+      - name: If beta build needed, create beta release
+        run: |
+          set -e
+          BASE="${{ steps.decide.outputs.base }}"
+          TAG="${{ steps.tag.outputs.tag }}"
+          IS_BETA="${{ steps.decide.outputs.is_beta }}"
+          OUTPUT_TAG="$TAG"
+
+          # For stable tags, we explicitly make a beta tag
+          if [[ "$IS_BETA" == "false" ]]; then
+            OUTPUT_TAG="${BASE}-beta"
+            echo "Creating a beta tag name: $OUTPUT_TAG"
+          fi
+
+          echo "Generating Beta release for $OUTPUT_TAG"
+
+          # Rewrite TOCs for Beta
           for toc in \
             release/RCPT/*.toc \
             release/RCPT_PullTimers/*.toc \
             release/RCPT_TalentCheck/*.toc
           do
             [ -f "$toc" ] || continue
-
-            # Set the Retail interface number
-            sed -E -i "s/^## Interface:.*$/## Interface: $RETAIL_INTERFACE/" "$toc"
-
-            # Generate the Beta TOC file right beside it
-            beta_file="${toc%.toc}_Beta.toc"
-            cp "$toc" "$beta_file"
-
-            # Update interface number in the Beta TOC
-            sed -E -i "s/^## Interface:.*$/## Interface: $BETA_INTERFACE/" "$beta_file"
+            sed -E -i "s/^## Interface:.*$/## Interface: $BETA_INTERFACE/" "$toc"
           done
 
-      - name: Create unified addon zip
-        run: |
           cd release
-          zip -r "RCPT_v${{ steps.tag.outputs.version }}.zip" \
-            RCPT RCPT_PullTimers RCPT_TalentCheck
+          zip -r "RCPT_${OUTPUT_TAG}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
-      - name: Generate release.json
-        run: |
-          cat > release/release.json <<EOF
+          # Create release.json for beta
+          cat > "release.json" <<EOF
           {
             "releases": [
               {
                 "name": "RCPT",
-                "version": "${{ steps.tag.outputs.version }}",
-                "filename": "RCPT_v${{ steps.tag.outputs.version }}.zip",
+                "version": "${OUTPUT_TAG}",
+                "filename": "RCPT_${OUTPUT_TAG}.zip",
                 "nolib": false,
                 "metadata": [
-                  {
-                    "flavor": "mainline",
-                    "interface": $RETAIL_INTERFACE
-                  },
                   {
                     "flavor": "beta",
                     "interface": $BETA_INTERFACE
@@ -86,15 +131,7 @@ jobs:
           }
           EOF
 
-      - name: Create GitHub release and upload assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          TAG="v${{ steps.tag.outputs.version }}"
-
-          gh release create "$TAG" \
-            release/RCPT_v${{ steps.tag.outputs.version }}.zip \
-            release/release.json \
-            --title "$TAG" \
-            --notes "Automated unified Retail/Beta release"
+          # Create GitHub release
+          gh release create "$OUTPUT_TAG" \
+            "RCPT_${OUTPUT_TAG}.zip" "release.json" \
+            --title "$OUTPUT_TAG" --notes "Beta release for $OUTPUT_TAG"
