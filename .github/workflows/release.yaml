@@ -3,7 +3,7 @@ name: Build and Release RCPT Addon
 on:
   push:
     tags:
-      - 'v*'   # v1.0.0, v1.2.3, etc.
+      - 'v*'
 
 permissions:
   contents: write
@@ -11,6 +11,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+
+    env:
+      RETAIL_INTERFACE: 110207   # default Retail interface
+      BETA_INTERFACE:   120001   # default Beta/PTR interface
 
     steps:
       - name: Checkout source
@@ -25,15 +29,14 @@ jobs:
           set -e
           rm -rf release
           mkdir -p release/RCPT
-
-          # Copy addon folders into a single package root
           cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/
 
       - name: Normalize TOC files (Retail default + Beta variant)
         run: |
           set -e
+          echo "Using Retail interface: $RETAIL_INTERFACE"
+          echo "Using Beta interface:   $BETA_INTERFACE"
 
-          # Retail is now the canonical/default TOC
           for toc in \
             release/RCPT/*.toc \
             release/RCPT_PullTimers/*.toc \
@@ -41,14 +44,15 @@ jobs:
           do
             [ -f "$toc" ] || continue
 
-            base="${toc%.toc}"
+            # Set the Retail interface number
+            sed -E -i "s/^## Interface:.*$/## Interface: $RETAIL_INTERFACE/" "$toc"
 
-            # Write Retail interface directly into the main TOC
-            sed -E -i '1s/^## Interface:.*$/## Interface: 110207/' "$toc"
+            # Generate the Beta TOC file right beside it
+            beta_file="${toc%.toc}_Beta.toc"
+            cp "$toc" "$beta_file"
 
-            # Generate a Beta TOC alongside it
-            cp "$toc" "${base}_Beta.toc"
-            sed -E -i '1s/^## Interface:.*$/## Interface: 120001/' "${base}_Beta.toc"
+            # Update interface number in the Beta TOC
+            sed -E -i "s/^## Interface:.*$/## Interface: $BETA_INTERFACE/" "$beta_file"
           done
 
       - name: Create unified addon zip
@@ -70,11 +74,11 @@ jobs:
                 "metadata": [
                   {
                     "flavor": "mainline",
-                    "interface": 110207
+                    "interface": $RETAIL_INTERFACE
                   },
                   {
                     "flavor": "beta",
-                    "interface": 120001
+                    "interface": $BETA_INTERFACE
                   }
                 ]
               }
