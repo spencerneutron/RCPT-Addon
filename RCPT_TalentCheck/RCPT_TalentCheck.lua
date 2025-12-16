@@ -175,12 +175,35 @@ local function CreateReadyOverlay()
         glowAG:SetLooping("REPEAT")
         overlay.readyBtn.glowAnim = glowAG
 
-        -- Helper text below the button
+        -- Helper text below the button (shows on hover even when disabled)
         overlay.readyBtn.helper = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         overlay.readyBtn.helper:SetPoint("TOP", overlay.readyBtn, "BOTTOM", 0, -4)
         overlay.readyBtn.helper:SetText("Hold Ctrl to override (1.5s)")
         overlay.readyBtn.helper:SetTextColor(0.92, 0.92, 0.78)
+        overlay.readyBtn.helper:SetAlpha(0)
         overlay.readyBtn.helper:Hide()
+        -- fade animations for the helper text
+        local helperInGroup = overlay.readyBtn.helper:CreateAnimationGroup()
+        local helperIn = helperInGroup:CreateAnimation("Alpha")
+        helperIn:SetFromAlpha(0)
+        helperIn:SetToAlpha(1)
+        helperIn:SetDuration(0.15)
+        helperIn:SetOrder(1)
+        overlay.readyBtn.helper.fadeIn = helperInGroup
+
+        local helperOutGroup = overlay.readyBtn.helper:CreateAnimationGroup()
+        local helperOut = helperOutGroup:CreateAnimation("Alpha")
+        helperOut:SetFromAlpha(1)
+        helperOut:SetToAlpha(0)
+        helperOut:SetDuration(0.12)
+        helperOut:SetOrder(1)
+        helperOutGroup:SetScript("OnFinished", function()
+                if overlay and overlay.readyBtn and overlay.readyBtn.helper then
+                        overlay.readyBtn.helper:Hide()
+                        overlay.readyBtn.helper:SetAlpha(0)
+                end
+        end)
+        overlay.readyBtn.helper.fadeOut = helperOutGroup
 
         -- Hold tracking state
         overlay.readyBtn._hold = { elapsed = 0, required = 1.5, tracking = false, mouseOver = false }
@@ -212,7 +235,13 @@ local function CreateReadyOverlay()
                 btn.progress:SetValue(0)
                 btn.progress:Show()
                 if btn.glowAnim and btn.glowAnim.Play then pcall(btn.glowAnim.Play, btn.glowAnim) end
-                if btn.helper then btn.helper:Show() end
+                if btn.helper then
+                        pcall(function()
+                                btn.helper:Show()
+                                if btn.helper.fadeOut and btn.helper.fadeOut.IsPlaying and btn.helper.fadeOut:IsPlaying() then pcall(btn.helper.fadeOut.Stop, btn.helper.fadeOut) end
+                                if btn.helper.fadeIn and btn.helper.fadeIn.Play then pcall(btn.helper.fadeIn.Play, btn.helper.fadeIn) end
+                        end)
+                end
                 overlay._holdFrame:Show()
         end
 
@@ -225,7 +254,12 @@ local function CreateReadyOverlay()
                 btn.progress:Hide()
                 btn.progress:SetValue(0)
                 if btn.glowAnim and btn.glowAnim.Stop then pcall(btn.glowAnim.Stop, btn.glowAnim) end
-                if btn.helper then btn.helper:Hide() end
+                if btn.helper then
+                        pcall(function()
+                                if btn.helper.fadeIn and btn.helper.fadeIn.IsPlaying and btn.helper.fadeIn:IsPlaying() then pcall(btn.helper.fadeIn.Stop, btn.helper.fadeIn) end
+                                if btn.helper.fadeOut and btn.helper.fadeOut.Play then pcall(btn.helper.fadeOut.Play, btn.helper.fadeOut) end
+                        end)
+                end
                 overlay._holdFrame:Hide()
         end
 
@@ -259,6 +293,14 @@ local function CreateReadyOverlay()
         -- Mouse enter/leave hooks to enforce "mouse leaves button cancels"
         overlay.readyBtn:SetScript("OnEnter", function(self)
                 self._hold.mouseOver = true
+                -- show a hover hint when the button is disabled
+                if not self:IsEnabled() and self.helper then
+                        pcall(function()
+                                self.helper:Show()
+                                if self.helper.fadeOut and self.helper.fadeOut.IsPlaying and self.helper.fadeOut:IsPlaying() then pcall(self.helper.fadeOut.Stop, self.helper.fadeOut) end
+                                if self.helper.fadeIn and self.helper.fadeIn.Play then pcall(self.helper.fadeIn.Play, self.helper.fadeIn) end
+                        end)
+                end
                 -- begin if Ctrl is held and button is currently disabled due to durability
                 if not self:IsEnabled() and IsControlKeyDown() then
                         pcall(function() overlay:StartOverride(self) end)
@@ -266,7 +308,15 @@ local function CreateReadyOverlay()
         end)
         overlay.readyBtn:SetScript("OnLeave", function(self)
                 self._hold.mouseOver = false
-                pcall(function() overlay:CancelOverride() end)
+                if self._hold.tracking then
+                        pcall(function() overlay:CancelOverride() end)
+                else
+                        -- just hide the hover helper
+                        pcall(function()
+                                if self.helper and self.helper.fadeIn and self.helper.fadeIn.IsPlaying and self.helper.fadeIn:IsPlaying() then pcall(self.helper.fadeIn.Stop, self.helper.fadeIn) end
+                                if self.helper and self.helper.fadeOut and self.helper.fadeOut.Play then pcall(self.helper.fadeOut.Play, self.helper.fadeOut) end
+                        end)
+                end
         end)
 
         -- Watch for modifier changes when mouse is over
