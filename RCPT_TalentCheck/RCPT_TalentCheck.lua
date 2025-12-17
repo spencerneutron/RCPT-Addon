@@ -127,10 +127,8 @@ local function CreateReadyOverlay()
                         -- perform the ready action (attempt to click Blizzard's button)
                         pcall(function()
                                 if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then
-                                                ReadyCheckFrameYesButton:Click()
-                                        else
-                                                pcall(Debug, "RCPT: ReadyCheckFrameYesButton click not available; skipping disable/enable fallback")
-                                        end
+                                        ReadyCheckFrameYesButton:Click()
+                                end
                         end)
                         -- immediately re-disable the overlay ready button
                         if self.Disable then pcall(self.Disable, self) end
@@ -142,8 +140,6 @@ local function CreateReadyOverlay()
                 pcall(function()
                         if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Click then
                                 ReadyCheckFrameYesButton:Click()
-                        else
-                                pcall(Debug, "RCPT: ReadyCheckFrameYesButton click not available; skipping fallback")
                         end
                 end)
         end)
@@ -530,9 +526,6 @@ local function CreateReadyOverlay()
                                         if isLow then
                                                 overlay.repairText:Show()
                                                 overlay.repairText:SetText("REPAIR NEEDED")
-                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
-                                                                pcall(Debug, "RCPT: skipping disabling Blizzard ReadyCheckFrameYesButton (periodic)")
-                                                        end
                                                 if overlay.readyBtn and overlay.readyBtn.Disable then
                                                         local now = (GetTime and GetTime()) or 0
                                                         if not overlay._freezeUntil or now >= overlay._freezeUntil then
@@ -542,9 +535,6 @@ local function CreateReadyOverlay()
                                                 end
                                         else
                                                 overlay.repairText:Hide()
-                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
-                                                        ReadyCheckFrameYesButton:Enable()
-                                                end
                                                 if overlay.readyBtn and overlay.readyBtn.Enable then
                                                         -- cancel any in-progress hold when durability recovers
                                                         pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
@@ -740,8 +730,7 @@ local function CreateReadyOverlay()
 
                                 ReadyCheckFrame:HookScript("OnHide", function()
                                         overlay:Hide()
-                                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
-                                end)
+                                        end)
                 end
 
         overlay:SetScript("OnHide", function(self)
@@ -902,30 +891,35 @@ local function ReadyCheckHandler(initiator)
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         overlay.specText:SetText(specName or "Unknown Spec")
                         overlay.loadoutText:SetText(loadoutName or "Unknown Loadout")
-                        overlay.durText:SetText(string.format("Durability: %d%% (%d low)", math.floor((avgDur or 100) + 0.5), numLowSlots or 0))
+                        overlay.durText:SetText(string.format(
+                                "Durability: %d%% (%d low)",
+                                math.floor((avgDur or 100) + 0.5),
+                                numLowSlots or 0
+                        ))
+
                         if isLow then
                                 overlay.repairText:Show()
                                 overlay.repairText:SetText("REPAIR NEEDED")
-                                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then
-                                                        ReadyCheckFrameYesButton:Disable()
-                                                end
-                                        if overlay and overlay.readyBtn and overlay.readyBtn.Disable then
-                                                local now = (GetTime and GetTime()) or 0
-                                                if not overlay._freezeUntil or now >= overlay._freezeUntil then
-                                                        overlay.readyBtn:Disable()
-                                                        if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Show() end) end
+
+                                if overlay and overlay.readyBtn and overlay.readyBtn.Disable then
+                                        local now = (GetTime and GetTime()) or 0
+                                        if not overlay._freezeUntil or now >= overlay._freezeUntil then
+                                                overlay.readyBtn:Disable()
+                                                if overlay.readyBtn.hitbox then
+                                                        pcall(function() overlay.readyBtn.hitbox:Show() end)
                                                 end
                                         end
+                                end
                         else
                                 overlay.repairText:Hide()
-                                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then
-                                        ReadyCheckFrameYesButton:Enable()
-                                end
                                 if overlay and overlay.readyBtn and overlay.readyBtn.Enable then
-                                        -- cancel any in-progress hold when durability recovers
-                                        pcall(function() if overlay.CancelOverride then overlay:CancelOverride() end end)
-                                                        overlay.readyBtn:Enable()
-                                                        if overlay.readyBtn.hitbox then pcall(function() overlay.readyBtn.hitbox:Hide() end) end
+                                        pcall(function()
+                                                if overlay.CancelOverride then overlay:CancelOverride() end
+                                        end)
+                                        overlay.readyBtn:Enable()
+                                        if overlay.readyBtn.hitbox then
+                                                pcall(function() overlay.readyBtn.hitbox:Hide() end)
+                                        end
                                 end
                         end
                 end)
@@ -968,21 +962,19 @@ local function ReadyCheckHandler(initiator)
                                         end)
                                 end
                 end
-                        if isLow then
+                if isLow then
                         -- Replacement behavior: show repair state (do not disable Blizzard buttons)
-                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Disable then pcall(Debug, "RCPT: skipping disabling Blizzard ReadyCheckFrameYesButton (ready handler)") end end)
-
                         if not frame.merchantHandler then
                                 local h = CreateFrame("Frame")
                                 h:RegisterEvent("MERCHANT_CLOSED")
                                 h:SetScript("OnEvent", function()
-                                        OnMerchantClosedRecheck(threshold, ReadyCheckFrameYesButton)
+                                        -- pass nil to avoid external manipulation of Blizzard button
+                                        OnMerchantClosedRecheck(threshold, nil)
                                 end)
                                 frame.merchantHandler = h
                         end
                 else
                         pcall(HideRepairText)
-                        pcall(function() if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Enable then ReadyCheckFrameYesButton:Enable() end end)
                         if frame.merchantHandler then
                                 pcall(function()
                                         frame.merchantHandler:UnregisterEvent("MERCHANT_CLOSED")
@@ -1022,10 +1014,6 @@ local function ensureExports()
                         elseif ReadyCheckFrame and ReadyCheckFrame.Show then
                                 ReadyCheckFrame:Show()
                         end
-                end)
-                pcall(function()
-                        if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end
-                        if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Show then ReadyCheckFrameNoButton:Show() end
                 end)
                 pcall(function()
                         if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
@@ -1091,10 +1079,6 @@ function _G.RCPT_TalentCheck.ShowReadyCheckDebug()
                 elseif ReadyCheckFrame and ReadyCheckFrame.Show then
                         ReadyCheckFrame:Show()
                 end
-        end)
-        pcall(function()
-                if ReadyCheckFrameYesButton and ReadyCheckFrameYesButton.Show then ReadyCheckFrameYesButton:Show() end
-                if ReadyCheckFrameNoButton and ReadyCheckFrameNoButton.Show then ReadyCheckFrameNoButton:Show() end
         end)
         pcall(function()
                 if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
