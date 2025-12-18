@@ -46,6 +46,9 @@ end
 -- Track modules whose loads were deferred due to combat
 local deferredLoads = {}
 
+-- Track whether player was previously in an instance so we fire once per join
+local lastInInstance = false
+
 local function RetryDeferredLoads()
     for addonName,_ in pairs(deferredLoads) do
         if RCPT_IsAddOnLoaded(addonName) then
@@ -136,6 +139,31 @@ f:SetScript("OnEvent", function(self, event, ...)
             pcall(function() _G.RCPT:InitModules() end)
         end
         C_Timer.After(0.05, EnsureModulesForGroup)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Detect zoning into an instance (dungeon/raid/scenario) and fire once
+        local inInstance, instanceType = false, nil
+        if type(IsInInstance) == "function" then
+            inInstance, instanceType = IsInInstance()
+        else
+            local ok, v = pcall(GetInstanceInfo)
+            if ok and v then inInstance = true end
+        end
+        if inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario") then
+            if not lastInInstance then
+                lastInInstance = true
+                local db = (_G.RCPT and _G.RCPT.db) or RCPT_Config
+                if db and db.resetOnDungeonJoin then
+                    pcall(function()
+                        if C_DamageMeter and type(C_DamageMeter.ResetAllCombatSessions) == "function" then
+                            C_DamageMeter.ResetAllCombatSessions()
+                            _G.RCPT_Debug("Reset damage meter sessions on dungeon join")
+                        end
+                    end)
+                end
+            end
+        else
+            lastInInstance = false
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- group membership changed
         _G.RCPT_Debug("Group roster updated")
@@ -150,6 +178,7 @@ end)
 
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 -- Public API
 _G.RCPT_Manager = {

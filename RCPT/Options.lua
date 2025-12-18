@@ -31,6 +31,7 @@ function Options.Init(addon)
         DB.debug = DB.debug == nil and true or DB.debug
         DB.cancelKeywords = DB.cancelKeywords or { "stop", "wait", "hold" }
         DB.maxRequiredGroup = DB.maxRequiredGroup or 4
+        DB.resetOnDungeonJoin = DB.resetOnDungeonJoin == nil and false or DB.resetOnDungeonJoin
     end
 
     local function EnsureTalentDefaults()
@@ -73,6 +74,12 @@ function Options.Init(addon)
         label = "Enable debug logging",
         get = function() return DB.debug end,
         set = function(v) DB.debug = v end,
+    })
+
+    local cbResetOnDungeon = b:AddCheck("RCPT_ResetOnDungeonCB", {
+        label = "Reset damage meter on dungeon join",
+        get = function() return DB.resetOnDungeonJoin end,
+        set = function(v) DB.resetOnDungeonJoin = v end,
     })
 
     local pullSlider = b:AddSlider("RCPT_PullDurationSlider", {
@@ -150,6 +157,7 @@ function Options.Init(addon)
         EnsureConfigDefaults()
         EnsureTalentDefaults()
         cbDebug:SetChecked(not not DB.debug)
+        if cbResetOnDungeon then cbResetOnDungeon:SetChecked(not not DB.resetOnDungeonJoin) end
         if pullSlider then pullSlider:SetValue(DB.pullDuration or 10) end
         if retrySlider then retrySlider:SetValue(DB.retryTimeout or 15) end
         if maxRetriesSlider then maxRetriesSlider:SetValue(DB.maxRetries or 2) end
@@ -176,6 +184,7 @@ function Options.Init(addon)
         DB.debug = true
         DB.cancelKeywords = { "stop", "wait", "hold" }
         DB.maxRequiredGroup = 4
+        DB.resetOnDungeonJoin = false
 
         TDB.SendPartyChatNotification = false
         TDB.MinDurabilityPercent = 80

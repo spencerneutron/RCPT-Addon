@@ -13,7 +13,8 @@ Addon.Defaults = {
     -- Only require readiness from raid subgroups up to this number.
     -- Set to 0 or nil to require all groups.
     maxRequiredGroup = 4,
-    configVersion = 3
+    resetOnDungeonJoin = false,
+    configVersion = 4
 }
 
 Addon.TalentDefaults = {
