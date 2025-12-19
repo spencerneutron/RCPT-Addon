@@ -90,8 +90,8 @@ end
 _G.RCPT_RunReadyCheck = RCPT_RunReadyCheck
 
 f:SetScript("OnEvent", function(_, event, ...)
-        -- if the player is not able to send a ready check, ignore everything
-    if not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player") then
+        -- if the player is not able to send a ready check, or the feature is disabled in config, ignore everything
+    if (not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player")) or not DB.enableAutoPullTimers then
         return
     end
     if event == "READY_CHECK" then
