@@ -26,6 +26,7 @@ function Options.Init(addon)
             return
         end
         DB.pullDuration = DB.pullDuration or 10
+        DB.enableAutoPullTimers = DB.enableAutoPullTimers == nil and false or DB.enableAutoPullTimers
         DB.retryTimeout = DB.retryTimeout or 15
         DB.maxRetries = DB.maxRetries or 2
         DB.debug = DB.debug == nil and true or DB.debug
@@ -80,6 +81,12 @@ function Options.Init(addon)
         label = "Reset damage meter on dungeon join",
         get = function() return DB.resetOnDungeonJoin end,
         set = function(v) DB.resetOnDungeonJoin = v end,
+    })
+
+    local cbAutoPull = b:AddCheck("RCPT_AutoPullCB", {
+        label = "Enable automatic pull timers",
+        get = function() return DB.enableAutoPullTimers end,
+        set = function(v) DB.enableAutoPullTimers = v end,
     })
 
     local pullSlider = b:AddSlider("RCPT_PullDurationSlider", {
@@ -158,6 +165,7 @@ function Options.Init(addon)
         EnsureTalentDefaults()
         cbDebug:SetChecked(not not DB.debug)
         if cbResetOnDungeon then cbResetOnDungeon:SetChecked(not not DB.resetOnDungeonJoin) end
+        if cbAutoPull then cbAutoPull:SetChecked(not not DB.enableAutoPullTimers) end
         if pullSlider then pullSlider:SetValue(DB.pullDuration or 10) end
         if retrySlider then retrySlider:SetValue(DB.retryTimeout or 15) end
         if maxRetriesSlider then maxRetriesSlider:SetValue(DB.maxRetries or 2) end
@@ -179,6 +187,7 @@ function Options.Init(addon)
 
     function panel.default()
         DB.pullDuration = 10
+        DB.enableAutoPullTimers = false
         DB.retryTimeout = 15
         DB.maxRetries = 2
         DB.debug = true
