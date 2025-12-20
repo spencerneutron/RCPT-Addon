@@ -142,5 +142,35 @@ function Addon.SafeUnitIsUnit(a, b)
     return res == true
 end
 
+function Addon.EncounterRestrictionsActive()
+    -- For now, we'll use the latest API to check for action restrictions even if they don't necessarily apply to our specific calls
+
+    -- state = C_RestrictedActions.GetAddOnRestrictionState(type)
+    
+    -- type values Enum.AddOnRestrictionType:
+    --0	Combat	
+    --1	Encounter	
+    --2	ChallengeMode	
+    --3	PvPMatch	
+    --4	Map
+
+    -- state returns Enum.AddOnRestrictionState
+    --0	Inactive	
+    --1	Activating	
+    --2	Active
+
+    if type(C_RestrictedActions) ~= "table" or type(C_RestrictedActions.GetAddOnRestrictionState) ~= "function" then
+        return true -- assume restrictions are active if we can't check
+    end
+    local ok1, state1 = pcall(function() return C_RestrictedActions.GetAddOnRestrictionState(Enum.AddOnRestrictionType.Encounter) end)
+    local ok2, state2 = pcall(function() return C_RestrictedActions.GetAddOnRestrictionState(Enum.AddOnRestrictionType.ChallengeMode) end)
+    local ok = ok1 and ok2
+    local state = (state1 == Enum.AddOnRestrictionState.Inactive and state2 == Enum.AddOnRestrictionState.Inactive)
+    if not ok or state ~= Enum.AddOnRestrictionState.Inactive then
+        return true
+    end
+    return false
+end
+
 print("|cff00ccff[RCPT]|r Core initialized")
 return Addon
