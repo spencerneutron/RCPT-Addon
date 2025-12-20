@@ -673,7 +673,8 @@ local function CreateReadyOverlay()
                                                 local isPlayerConfirm = false
 
                                                 local ok1, res1 = pcall(function()
-                                                        if UnitIsUnit then return UnitIsUnit(unitOrName, "player") end
+                                                        if Addon and Addon.SafeUnitIsUnit then return Addon.SafeUnitIsUnit(unitOrName, "player") end
+                                                        if UnitIsUnit then local ok_, res_ = pcall(UnitIsUnit, unitOrName, "player"); if ok_ then return res_ end end
                                                         return false
                                                 end)
                                                 if ok1 and res1 then isPlayerConfirm = true end
@@ -926,14 +927,17 @@ local function ReadyCheckHandler(initiator)
                 -- If the player initiated the ready check, force the compact mini overlay
                 do
                                 local ok, isInitiator = pcall(function()
-                                        if not initiator then return false end
-                                        if UnitIsUnit then
-                                                if UnitIsUnit(initiator, "player") then return true end
-                                        end
-                                        local okn, pname = pcall(UnitName, "player")
-                                        if okn and pname and initiator == pname then return true end
-                                        return false
-                                end)
+                                                        if not initiator then return false end
+                                                        if Addon and Addon.SafeUnitIsUnit then
+                                                                if Addon.SafeUnitIsUnit(initiator, "player") then return true end
+                                                        elseif UnitIsUnit then
+                                                                local ok_, res_ = pcall(UnitIsUnit, initiator, "player")
+                                                                if ok_ and res_ then return true end
+                                                        end
+                                                        local okn, pname = pcall(UnitName, "player")
+                                                        if okn and pname and initiator == pname then return true end
+                                                        return false
+                                                end)
                                 if ok and isInitiator then
                                         pcall(function()
                                                 if overlay and overlay.CreateMiniOverlay then

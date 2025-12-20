@@ -97,15 +97,24 @@ f:SetScript("OnEvent", function(_, event, ...)
     if event == "READY_CHECK" then
         local initiatorUnit = ...
 
-        if UnitIsUnit("player", initiatorUnit) then
-            initiatedByMe = true
-            readyMap = {}
-            local me = FullNameForUnit("player")
-            if me then readyMap[me] = true end
-            Debug("You initiated the ready check")
-        else
-            initiatedByMe = false
-            Debug("Another player initiated the ready check, ignoring")
+        do
+            local isSelf = false
+            if _G.RCPT and _G.RCPT.SafeUnitIsUnit then
+                isSelf = _G.RCPT.SafeUnitIsUnit("player", initiatorUnit)
+            elseif UnitIsUnit then
+                local ok_, res_ = pcall(UnitIsUnit, "player", initiatorUnit)
+                if ok_ and res_ then isSelf = true end
+            end
+            if isSelf then
+                initiatedByMe = true
+                readyMap = {}
+                local me = FullNameForUnit("player")
+                if me then readyMap[me] = true end
+                Debug("You initiated the ready check")
+            else
+                initiatedByMe = false
+                Debug("Another player initiated the ready check, ignoring")
+            end
         end
     elseif event == "READY_CHECK_CONFIRM" then
         if not initiatedByMe then

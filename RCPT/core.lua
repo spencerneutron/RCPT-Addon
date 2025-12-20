@@ -134,6 +134,13 @@ function Addon:InitModules()
     self._modulesInitialized = true
 end
 
-print("|cff00ccff[RCPT]|r Core initialized")
+-- Safe wrapper for UnitIsUnit to protect against Secret/tainted errors
+function Addon.SafeUnitIsUnit(a, b)
+    if type(UnitIsUnit) ~= "function" then return false end
+    local ok, res = pcall(UnitIsUnit, a, b)
+    if not ok then return false end
+    return res == true
+end
 
+print("|cff00ccff[RCPT]|r Core initialized")
 return Addon
