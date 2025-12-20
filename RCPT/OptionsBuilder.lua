@@ -19,17 +19,33 @@ function OptionsBuilder.New(name, parent, opts)
     self.leftX = opts.leftX or 16
     self.rightX = opts.rightX or 300
     self.x = self.leftX
-    self.y = opts.startY or -60
+    self.startY = opts.startY or -60
+    self.y = self.startY
     self.col = "left"
     self.spacing = opts.spacing or 36
     self.width = opts.width or 220
+    -- create a ScrollFrame and a scroll child so option controls can be scrolled
+    local name = panel:GetName() or "OptionsPanel"
+    local scroll = CreateFrame("ScrollFrame", name .. "ScrollFrame", panel, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -24, 0)
+    local content = CreateFrame("Frame", name .. "ScrollChild", scroll)
+    -- anchor content so its top-left lines up with panel's leftX/startY coordinates
+    content:SetPoint("TOPLEFT", panel, "TOPLEFT", self.leftX, self.startY)
+    content:SetWidth((self.rightX - self.leftX) + self.width)
+    scroll:SetScrollChild(content)
+    self.scroll = scroll
+    self.content = content
+
     return self
 end
 
 -- Internal: place frame at current cursor and advance
 function OptionsBuilder:_place(frame, col)
-    local x = (col == "right") and self.rightX or self.leftX
-    frame:SetPoint("TOPLEFT", self.panel, "TOPLEFT", x, self.y)
+    -- Ensure we have a scroll content frame to anchor to; fall back to panel
+    local parentForPlacement = self.content or self.panel
+    local xOffset = (col == "right") and (self.rightX - self.leftX) or 0
+    frame:SetPoint("TOPLEFT", parentForPlacement, "TOPLEFT", xOffset, self.y - self.startY)
     self.y = self.y - self.spacing
     return frame
 end
@@ -43,7 +59,7 @@ function OptionsBuilder:AddTitle(text)
 end
 
 function OptionsBuilder:AddSubtitle(text)
-    local subtitle = self.panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local subtitle = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetText(text)
     self:_place(subtitle, "left")
     return subtitle
@@ -52,7 +68,7 @@ end
 -- Add a section header (larger than subtitle) and advance the layout cursor
 -- text: string title for the section
 function OptionsBuilder:AddSection(text)
-    local sec = self.panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local sec = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     sec:SetText(text)
     self:_place(sec, "left")
     -- add a little extra spacing after a section header
@@ -64,7 +80,7 @@ end
 -- opts: {label=string, get=function->bool, set=function(bool)}
 function OptionsBuilder:AddCheck(name, opts)
     opts = opts or {}
-    local cb = CreateFrame("CheckButton", name, self.panel, "InterfaceOptionsCheckButtonTemplate")
+    local cb = CreateFrame("CheckButton", name, self.content or self.panel, "InterfaceOptionsCheckButtonTemplate")
     cb.Text:SetText(opts.label or name)
     self:_place(cb, "left")
     if opts.get then cb:SetChecked(not not opts.get()) end
@@ -76,7 +92,7 @@ end
 -- opts: {min=number,max=number,step=number,label=string,get=set functions}
 function OptionsBuilder:AddSlider(name, opts)
     opts = opts or {}
-    local s = CreateFrame("Slider", name, self.panel, "OptionsSliderTemplate")
+    local s = CreateFrame("Slider", name, self.content or self.panel, "OptionsSliderTemplate")
     s:SetWidth(self.width)
     s:SetMinMaxValues(opts.min or 1, opts.max or 100)
     s:SetValueStep(opts.step or 1)
@@ -104,7 +120,7 @@ function OptionsBuilder:AddSlider(name, opts)
     end
     -- numeric display
     do
-        local fs = self.panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        local fs = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         fs:SetPoint("LEFT", s, "RIGHT", 8, 0)
         fs:SetText(tostring(opts.get and opts.get() or ""))
         s.Value = fs
@@ -115,17 +131,17 @@ end
 -- Add an editbox (left column)
 function OptionsBuilder:AddEditBox(name, opts)
     opts = opts or {}
-    local eb = CreateFrame("EditBox", name, self.panel, "InputBoxTemplate")
+    local eb = CreateFrame("EditBox", name, self.content or self.panel, "InputBoxTemplate")
 
     if opts.label then
-        local lbl = self.panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        local lbl = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         lbl:SetText(opts.label)
         self:_place(lbl, "left")
         -- move cursor back a bit so the editbox sits closer to the label
         self.y = self.y + (self.spacing * 0.5)
         eb:SetSize(opts.width or 260, 22)
         -- anchor the editbox right under the label to avoid overlaps
-        eb:SetPoint("TOPLEFT", self.panel, "TOPLEFT", self.leftX, self.y)
+        eb:SetPoint("TOPLEFT", self.content or self.panel, "TOPLEFT", 0, self.y - self.startY)
         -- advance the cursor as _place would
         self.y = self.y - self.spacing
     else
@@ -150,7 +166,7 @@ end
 
 -- Add a button on right column
 function OptionsBuilder:AddButton(name, label, width, onClick)
-    local btn = CreateFrame("Button", name, self.panel, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", name, self.content or self.panel, "UIPanelButtonTemplate")
     btn:SetSize(width or 140, 22)
     btn:SetText(label or name)
     self:_place(btn, "right")
@@ -160,6 +176,7 @@ end
 
 -- Register panel with Interface Options APIs and return panel
 function OptionsBuilder:Finish()
+    
     if InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(self.panel)
     else
@@ -173,6 +190,13 @@ function OptionsBuilder:Finish()
             self.panel:SetParent(InterfaceOptionsFramePanelContainer)
         end
     end
+    -- finalize content height so scroll works when content exceeds visible area
+    if self.content then
+        local usedHeight = (self.startY - self.y) + 40
+        if usedHeight < 1 then usedHeight = 1 end
+        self.content:SetHeight(usedHeight)
+    end
+
     return self.panel
 end
 

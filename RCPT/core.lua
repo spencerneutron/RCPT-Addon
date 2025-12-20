@@ -165,8 +165,8 @@ function Addon.EncounterRestrictionsActive()
     local ok1, state1 = pcall(function() return C_RestrictedActions.GetAddOnRestrictionState(Enum.AddOnRestrictionType.Encounter) end)
     local ok2, state2 = pcall(function() return C_RestrictedActions.GetAddOnRestrictionState(Enum.AddOnRestrictionType.ChallengeMode) end)
     local ok = ok1 and ok2
-    local state = (state1 == Enum.AddOnRestrictionState.Inactive and state2 == Enum.AddOnRestrictionState.Inactive)
-    if not ok or state ~= Enum.AddOnRestrictionState.Inactive then
+    local stateValid = (state1 == Enum.AddOnRestrictionState.Inactive and state2 == Enum.AddOnRestrictionState.Inactive)
+    if not ok or not stateValid then
         return true
     end
     return false
