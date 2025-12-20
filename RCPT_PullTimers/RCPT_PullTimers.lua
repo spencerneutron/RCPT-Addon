@@ -57,6 +57,10 @@ end
 -- Chat event registration helpers
 local function RegisterChatEvents()
     if chatEventsRegistered then return end
+    if _G.RCPT and _G.RCPT.EncounterRestrictionsActive and _G.RCPT.EncounterRestrictionsActive() then
+        Debug("Encounter restrictions active; skipping chat event registration")
+        return
+    end
     f:RegisterEvent("CHAT_MSG_PARTY")
     f:RegisterEvent("CHAT_MSG_RAID")
     -- include leader-specific events; handler will dedupe duplicate notifications
@@ -208,6 +212,10 @@ f:SetScript("OnEvent", function(_, event, ...)
         end
 
     elseif event:match("^CHAT_MSG_") then
+        if _G.RCPT and _G.RCPT.EncounterRestrictionsActive and _G.RCPT.EncounterRestrictionsActive() then
+            Debug("Skipping chat parsing due to encounter restrictions")
+            return
+        end
         Debug("Chat message received: " .. event)
         local msg = select(1, ...)
         if not msg then return end

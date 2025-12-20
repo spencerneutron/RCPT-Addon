@@ -872,6 +872,10 @@ local function ReadyCheckHandler(initiator)
 
         if TDB and TDB.SendPartyChatNotification then
                 pcall(function()
+                        if Addon and Addon.EncounterRestrictionsActive and Addon.EncounterRestrictionsActive() then
+                                Debug("Skipping SendChatMessage due to encounter restrictions")
+                                return
+                        end
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         local channel = nil
                         if IsInRaid and IsInRaid() then channel = "RAID"
