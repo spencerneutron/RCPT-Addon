@@ -227,6 +227,33 @@ f:SetScript("OnEvent", function(_, event, ...)
                 break
             end
         end
+    elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        -- signature: type, state
+        local rtype, rstate = ...
+        -- try to resolve relevant enum values safely
+        local okT, tEncounter = pcall(function() return Enum and Enum.AddOnRestrictionType and Enum.AddOnRestrictionType.Encounter end)
+        local okC, tChallenge = pcall(function() return Enum and Enum.AddOnRestrictionType and Enum.AddOnRestrictionType.ChallengeMode end)
+        local okS, sActive = pcall(function() return Enum and Enum.AddOnRestrictionState and Enum.AddOnRestrictionState.Active end)
+        local okA, sActivating = pcall(function() return Enum and Enum.AddOnRestrictionState and Enum.AddOnRestrictionState.Activating end)
+        local okI, sInactive = pcall(function() return Enum and Enum.AddOnRestrictionState and Enum.AddOnRestrictionState.Inactive end)
+
+        local isRelevant = false
+        if okT and okC then
+            if rtype == tEncounter or rtype == tChallenge then isRelevant = true end
+        end
+        if not isRelevant then return end
+
+        -- If restrictions are activating/active, unregister chat listeners immediately
+        if (okS and okA) and (rstate == sActivating or rstate == sActive) then
+            Debug("Restriction activating/active for relevant type; unregistering chat events")
+            UnregisterChatEvents()
+        elseif okI and rstate == sInactive then
+            -- If restrictions cleared, re-register chat events if we had initiated a ready check
+            Debug("Restriction inactive for relevant type; attempting to re-register chat events")
+            if initiatedByMe then
+                RegisterChatEvents()
+            end
+        end
     end
 end)
 
@@ -236,6 +263,7 @@ local function InitModule()
     f:RegisterEvent("READY_CHECK")
     f:RegisterEvent("READY_CHECK_CONFIRM")
     f:RegisterEvent("READY_CHECK_FINISHED")
+    f:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
     _G.RCPT_MainActive = true
 end
 
@@ -261,6 +289,7 @@ local function Teardown()
     f:UnregisterEvent("READY_CHECK")
     f:UnregisterEvent("READY_CHECK_CONFIRM")
     f:UnregisterEvent("READY_CHECK_FINISHED")
+    f:UnregisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
     UnregisterChatEvents()
     if scheduledCleanup then
         pcall(function() scheduledCleanup:Cancel() end)
