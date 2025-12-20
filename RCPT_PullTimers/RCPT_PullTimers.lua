@@ -50,7 +50,8 @@ local function MakeFullNameFromParts(name, realm)
 end
 
 local function FullNameForUnit(unit)
-    local name, realm = UnitFullName(unit)
+    local ok, name, realm = pcall(UnitFullName, unit)
+    if not ok or not name then return nil end
     return MakeFullNameFromParts(name, realm)
 end
 
