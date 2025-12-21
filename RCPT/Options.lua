@@ -71,6 +71,10 @@ function Options.Init(addon)
 
     b:AddSection("General")
 
+    -- Group general settings visually
+    local g1 = nil
+    if b.BeginGroup then g1 = b:BeginGroup("General Settings") end
+
     local cbDebug = b:AddCheck("RCPT_DebugCB", {
         label = "Enable debug logging",
         get = function() return DB.debug end,
@@ -127,8 +131,14 @@ function Options.Init(addon)
             DB.cancelKeywords = t
         end,
     })
+    if b.EndGroup then b:EndGroup() end
 
+    -- visual break between general settings and talent-check related options
+    if b.AddDivider then b:AddDivider() end
     b:AddSection("TalentCheck settings")
+
+    local g2 = nil
+    if b.BeginGroup then g2 = b:BeginGroup("TalentCheck") end
 
     local cbParty = b:AddCheck("RCPT_Talent_SendPartyCB", {
         label = "Send loadout notification to party",
@@ -157,6 +167,8 @@ function Options.Init(addon)
             end
         end)
     end)
+
+    if b.EndGroup then b:EndGroup() end
 
     local panel = b:Finish()
 

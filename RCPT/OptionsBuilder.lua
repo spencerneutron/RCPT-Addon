@@ -44,22 +44,37 @@ end
 function OptionsBuilder:_place(frame, col)
     -- Ensure we have a scroll content frame to anchor to; fall back to panel
     local parentForPlacement = self.content or self.panel
-    local xOffset = (col == "right") and (self.rightX - self.leftX) or 0
+    local xOffset
+    if col == "right" then
+        xOffset = (self.rightX - self.leftX)
+    else
+        xOffset = (self.x or self.leftX) - self.leftX
+    end
     frame:SetPoint("TOPLEFT", parentForPlacement, "TOPLEFT", xOffset, self.y - self.startY)
     self.y = self.y - self.spacing
+    -- if we're inside a group, track the lowest y used so EndGroup can size correctly
+    if self._currentGroup and self._currentGroup._childBottom then
+        if self.y < self._currentGroup._childBottom then
+            self._currentGroup._childBottom = self.y
+        end
+    end
     return frame
 end
 
 -- Title and subtitle
 function OptionsBuilder:AddTitle(text)
-    local title = self.panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -16)
+    local parentFor = self.content or self.panel
+    local title = parentFor:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", parentFor, "TOPLEFT", 0, 0)
     title:SetText(text)
+    -- leave some space after the title
+    self.y = self.y - 36
     return title
 end
 
 function OptionsBuilder:AddSubtitle(text)
-    local subtitle = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local parentFor = self.content or self.panel
+    local subtitle = parentFor:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetText(text)
     self:_place(subtitle, "left")
     return subtitle
@@ -68,12 +83,99 @@ end
 -- Add a section header (larger than subtitle) and advance the layout cursor
 -- text: string title for the section
 function OptionsBuilder:AddSection(text)
-    local sec = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local parentFor = self.content or self.panel
+    local sec = parentFor:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     sec:SetText(text)
     self:_place(sec, "left")
+    -- add a subtle divider under the section title for visual separation
+    local div = CreateFrame("Frame", nil, parentFor)
+    div:SetHeight(1)
+    local left = 0
+    local right = ((self.rightX - self.leftX) + self.width) - 16
+    div:SetPoint("TOPLEFT", parentFor, "TOPLEFT", left, self.y - self.startY + (self.spacing * 0.1))
+    div:SetPoint("TOPRIGHT", parentFor, "TOPLEFT", right, self.y - self.startY + (self.spacing * 0.1))
+    local dt = div:CreateTexture(nil, "BACKGROUND")
+    dt:SetAllPoints(div)
+    dt:SetColorTexture(0.3, 0.3, 0.3, 0.6)
     -- add a little extra spacing after a section header
-    self.y = self.y - (self.spacing * 0.25)
+    self.y = self.y - (self.spacing * 0.35)
     return sec
+end
+
+-- simple horizontal divider control
+function OptionsBuilder:AddDivider()
+    local parentFor = self.content or self.panel
+    local div = CreateFrame("Frame", nil, parentFor)
+    div:SetHeight(1)
+    local left = 0
+    local right = ((self.rightX - self.leftX) + self.width) - 16
+    div:SetPoint("TOPLEFT", parentFor, "TOPLEFT", left, self.y - self.startY)
+    div:SetPoint("TOPRIGHT", parentFor, "TOPLEFT", right, self.y - self.startY)
+    local dt = div:CreateTexture(nil, "BACKGROUND")
+    dt:SetAllPoints(div)
+    dt:SetColorTexture(0.45, 0.45, 0.45, 0.6)
+    self.y = self.y - (self.spacing * 0.25)
+    return div
+end
+
+-- Start a visually grouped box for related controls. Returns the backdrop frame.
+-- title: optional string shown at top-left of group
+-- opts: optional table {pad = number}
+function OptionsBuilder:BeginGroup(title, opts)
+    opts = opts or {}
+    local parentFor = self.content or self.panel
+    local pad = opts.pad or 8
+    local group = CreateFrame("Frame", nil, parentFor, "BackdropTemplate")
+    group:SetPoint("TOPLEFT", parentFor, "TOPLEFT", 0, self.y - self.startY)
+    group:SetPoint("TOPRIGHT", parentFor, "TOPLEFT", ((self.rightX - self.leftX) + self.width) - 16, self.y - self.startY)
+    group:SetHeight(40) -- will adjust as children added
+    group:SetBackdrop({ bgFile = "", edgeFile = "", edgeSize = 1 })
+    group:SetBackdropColor(0.08, 0.08, 0.08, 0.6)
+    group._topY = self.y
+    group._pad = pad
+    group._childBottom = self.y
+    -- optional title
+    if title then
+        local t = group:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        t:SetPoint("TOPLEFT", group, "TOPLEFT", pad, -4)
+        t:SetText(title)
+    end
+    -- store current group so placement anchors can consider it
+    self._currentGroup = group
+    -- indent future placements slightly inside the group
+    self.x = self.leftX + pad
+    self.y = self.y - (pad + 6)
+    return group
+end
+
+-- Close a group: adjust backdrop height to fit content and restore placement cursor
+function OptionsBuilder:EndGroup()
+    local group = self._currentGroup
+    if not group then return end
+    local parentFor = self.content or self.panel
+    -- ensure we include any final y changes that may have occurred
+    if self.y < group._childBottom then group._childBottom = self.y end
+    local used = group._topY - group._childBottom + (group._pad * 2)
+    if used < 24 then used = 24 end
+    group:SetHeight(used)
+    -- restore x and clear currentGroup
+    self.x = self.leftX
+    self._currentGroup = nil
+    -- add a little space after group
+    self.y = self.y - (self.spacing * 0.25)
+    return group
+end
+
+-- Align a label FontString next to a control, keeping columns tidy.
+-- control: frame to anchor to; label: text string; offset: optional x offset
+function OptionsBuilder:AttachLabel(control, label, offset)
+    if not control or not label then return end
+    local parentFor = self.content or self.panel
+    local lbl = parentFor:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    local xoff = offset or -8
+    lbl:SetPoint("RIGHT", control, "LEFT", xoff, 0)
+    lbl:SetText(label)
+    return lbl
 end
 
 -- Add a checkbutton (left column)
@@ -137,13 +239,9 @@ function OptionsBuilder:AddEditBox(name, opts)
         local lbl = (self.content or self.panel):CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         lbl:SetText(opts.label)
         self:_place(lbl, "left")
-        -- move cursor back a bit so the editbox sits closer to the label
-        self.y = self.y + (self.spacing * 0.5)
+        -- place editbox under the label using _place for consistent alignment
         eb:SetSize(opts.width or 260, 22)
-        -- anchor the editbox right under the label to avoid overlaps
-        eb:SetPoint("TOPLEFT", self.content or self.panel, "TOPLEFT", 0, self.y - self.startY)
-        -- advance the cursor as _place would
-        self.y = self.y - self.spacing
+        self:_place(eb, "left")
     else
         eb:SetSize(opts.width or 260, 22)
         self:_place(eb, "left")
