@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120000, 120001
 ## Title: RCPT - Talent Check
 ## Notes: Talent and durability UI module (load-on-demand)
 ## LoadOnDemand: 1
