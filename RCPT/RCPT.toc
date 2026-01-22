@@ -2,7 +2,7 @@
 ## Title: RCPT
 ## Notes: Bootstrap manager for RCPT modules (loads core and modules on demand)
 ## Author: boolbog
-## Version: 1.1.4
+## Version: 2.0.0
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
 
 core.lua

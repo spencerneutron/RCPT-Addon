@@ -3,7 +3,7 @@ name: Build and Publish RCPT Addon
 on:
   push:
     tags:
-      - 'v*'   # matches both vX.Y.Z and vX.Y.Z-beta
+      - 'v*'
 
 permissions:
   contents: write
@@ -29,11 +29,14 @@ jobs:
         id: decide
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          BASE="${TAG%-beta}"          # strip -beta suffix if present
+          BASE="${TAG%-beta}"
+          BASE="${BASE#v}"          # strip leading v
           IS_BETA="false"
+
           if [[ "$TAG" == *"-beta"* ]]; then
             IS_BETA="true"
           fi
+
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "is_beta=$IS_BETA" >> "$GITHUB_OUTPUT"
 
@@ -44,9 +47,9 @@ jobs:
           mkdir -p release
           cp -r RCPT RCPT_PullTimers RCPT_TalentCheck release/
 
-      ################################################################
-      # Retail release (only if the tag does NOT include "-beta")
-      ################################################################
+      ############################################################
+      # Retail Release (ONLY when not beta)
+      ############################################################
       - name: Create Retail release
         if: steps.decide.outputs.is_beta == 'false'
         env:
@@ -54,13 +57,16 @@ jobs:
         run: |
           set -e
           BASE="${{ steps.decide.outputs.base }}"
-          echo "Generating Retail release for $BASE"
 
-          # Build zip without altering any TOCs
+          echo "Updating RCPT.toc version to $BASE"
+
+          sed -E -i \
+            "s/^## Version .*/## Version $BASE/" \
+            release/RCPT/RCPT.toc
+
           cd release
           zip -r "RCPT_${BASE}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
-          # Generate a release.json with only retail metadata
           cat > "release.json" <<EOF
           {
             "releases": [
@@ -80,34 +86,30 @@ jobs:
           }
           EOF
 
-          # Publish the Retail release on GitHub
-          gh release create "$BASE" \
+          gh release create "v${BASE}" \
             "RCPT_${BASE}.zip" "release.json" \
-            --title "$BASE" \
-            --notes "Retail release for $BASE"
+            --title "v${BASE}" \
+            --notes "Retail release for v${BASE}"
 
-      ################################################################
-      # Beta release (always run; if not a beta tag, generate vX.Y.Z-beta)
-      ################################################################
+      ############################################################
+      # Beta Release (ONLY when tag is beta)
+      ############################################################
       - name: Create Beta release
+        if: steps.decide.outputs.is_beta == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          BASE="${{ steps.decide.outputs.base }}"
-          IS_BETA="${{ steps.decide.outputs.is_beta }}"
           TAG="${{ steps.tag.outputs.tag }}"
+          BASE="${{ steps.decide.outputs.base }}"
 
-          # Decide output tag: use existing beta tag or generate one
-          if [[ "$IS_BETA" == "false" ]]; then
-            OUTPUT_TAG="${BASE}-beta"
-          else
-            OUTPUT_TAG="$TAG"
-          fi
+          echo "Updating RCPT.toc version to $BASE (beta)"
 
-          echo "Generating Beta release for $OUTPUT_TAG"
+          sed -E -i \
+            "s/^## Version .*/## Version $BASE/" \
+            release/RCPT/RCPT.toc
 
-          # Rewrite TOCs to use the BETA interface
+          # Rewrite interface to beta
           for toc in \
             release/RCPT/*.toc \
             release/RCPT_PullTimers/*.toc \
@@ -117,18 +119,16 @@ jobs:
             sed -E -i "s/^## Interface:.*$/## Interface: $BETA_INTERFACE/" "$toc"
           done
 
-          # Zip the modified beta addon
           cd release
-          zip -r "RCPT_${OUTPUT_TAG}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
+          zip -r "RCPT_${TAG}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
 
-          # Generate the beta release.json
           cat > "release.json" <<EOF
           {
             "releases": [
               {
                 "name": "RCPT",
-                "version": "${OUTPUT_TAG}",
-                "filename": "RCPT_${OUTPUT_TAG}.zip",
+                "version": "${BASE}-beta",
+                "filename": "RCPT_${TAG}.zip",
                 "nolib": false,
                 "metadata": [
                   {
@@ -141,8 +141,7 @@ jobs:
           }
           EOF
 
-          # Publish the Beta release on GitHub
-          gh release create "$OUTPUT_TAG" \
-            "RCPT_${OUTPUT_TAG}.zip" "release.json" \
-            --title "$OUTPUT_TAG" \
-            --notes "Beta release for $OUTPUT_TAG"
+          gh release create "${TAG}" \
+            "RCPT_${TAG}.zip" "release.json" \
+            --title "${TAG}" \
+            --notes "Beta release for ${TAG}"
