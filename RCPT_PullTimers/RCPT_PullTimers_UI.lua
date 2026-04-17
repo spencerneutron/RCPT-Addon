@@ -21,6 +21,9 @@ local COLOR_FAIL     = { r = 1,    g = 0.15, b = 0.15 }
 -- Current state (reset each cycle)
 local currentStep = 0
 
+-- Saved drag position (persists within session, not across reloads)
+local savedPoint = nil  -- { point, relativeTo, relativePoint, x, y }
+
 -- Debug helper
 local function Debug(msg)
     if _G.RCPT_Debug then _G.RCPT_Debug(msg) end
@@ -66,22 +69,28 @@ end
 ---------------------------------------------------------------------------
 local STEP_LABELS = { "RC Sent", "Waiting", "Result", "Pull Timer" }
 
+-- Inline texture markup helpers (14x14 icons embedded in FontStrings)
+local ICON_CIRCLE  = "|TInterface\\COMMON\\Indicator-Gray:14:14:0:0|t"
+local ICON_CHECK   = "|TInterface\\RAIDFRAME\\ReadyCheck-Ready:14:14:0:0|t"
+local ICON_CROSS   = "|TInterface\\RAIDFRAME\\ReadyCheck-NotReady:14:14:0:0|t"
+local ICON_ACTIVE  = "|TInterface\\COMMON\\Indicator-Yellow:14:14:0:0|t"
+
 local function SetStepState(index, state)
     local s = steps[index]
     if not s then return end
     local c = COLOR_INACTIVE
-    local symbol = "\226\151\143" -- ● (U+25CF)
+    local icon = ICON_CIRCLE
     if state == "active" then
         c = COLOR_ACTIVE
+        icon = ICON_ACTIVE
     elseif state == "success" then
         c = COLOR_SUCCESS
-        symbol = "\226\156\147" -- ✓ (U+2713)
+        icon = ICON_CHECK
     elseif state == "fail" then
         c = COLOR_FAIL
-        symbol = "\226\156\151" -- ✗ (U+2717)
+        icon = ICON_CROSS
     end
-    s.dot:SetText(symbol)
-    s.dot:SetTextColor(c.r, c.g, c.b)
+    s.dot:SetText(icon)
     s.label:SetTextColor(c.r, c.g, c.b)
 end
 
@@ -142,7 +151,7 @@ local function CreateStatusFrame()
         tile     = false,
         edgeSize = 8,
     })
-    frame:SetBackdropColor(0, 0, 0, 0.75)
+    frame:SetBackdropColor(0, 0, 0, 0.95)
 
     -- Make draggable
     frame:SetMovable(true)
@@ -154,6 +163,9 @@ local function CreateStatusFrame()
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         self._userMoved = true
+        -- Capture position so we can restore it on next Show
+        local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
+        savedPoint = { point = point, relativePoint = relativePoint, x = xOfs, y = yOfs }
     end)
     frame:SetClampedToScreen(true)
 
@@ -166,11 +178,10 @@ local function CreateStatusFrame()
     for i = 1, 4 do
         local xOff = startX + (i - 1) * stepWidth
 
-        -- dot / symbol
+        -- dot / icon
         local dot = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         dot:SetPoint("TOPLEFT", frame, "TOPLEFT", xOff + 10, dotY)
-        dot:SetText("\226\151\143") -- ●
-        dot:SetTextColor(COLOR_INACTIVE.r, COLOR_INACTIVE.g, COLOR_INACTIVE.b)
+        dot:SetText(ICON_CIRCLE)
 
         -- label
         local lbl = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -222,8 +233,11 @@ end
 ---------------------------------------------------------------------------
 local function ShowFrame()
     local f = CreateStatusFrame()
-    if not f._userMoved then
-        f:ClearAllPoints()
+    f:ClearAllPoints()
+    if savedPoint then
+        -- Restore session-saved drag position
+        f:SetPoint(savedPoint.point, UIParent, savedPoint.relativePoint, savedPoint.x, savedPoint.y)
+    else
         local anchor = ResolveAnchor()
         if anchor then
             f:SetPoint("TOP", anchor, "BOTTOM", 0, -8)
