@@ -5,4 +5,5 @@
 ## Dependencies: RCPT
 
 RCPT_PullTimers.lua
+RCPT_PullTimers_UI.lua
 RCPT_PullTimers_Slash.lua

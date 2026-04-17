@@ -8,8 +8,35 @@ local readyMap = {}
 local scheduledCleanup
 local initiatedByMe = false
 local chatEventsRegistered = false
+local trackedTotal = 0
 
 local Module = {}
+
+-- Callback pub/sub for UI consumers
+local callbacks = {}
+
+local function FireCallback(event, payload)
+    if not callbacks[event] then return end
+    for fn in pairs(callbacks[event]) do
+        pcall(fn, event, payload)
+    end
+end
+
+function _G.RCPT_PullTimers_RegisterCallback(event, fn)
+    if not event or type(fn) ~= "function" then return end
+    if not callbacks[event] then callbacks[event] = {} end
+    callbacks[event][fn] = true
+end
+
+function _G.RCPT_PullTimers_UnregisterCallback(event, fn)
+    if callbacks[event] then
+        callbacks[event][fn] = nil
+    end
+end
+
+function _G.RCPT_PullTimers_UnregisterAllCallbacks()
+    callbacks = {}
+end
 
 -- Ensure defaults from config.lua are applied (safe-call)
 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
@@ -79,6 +106,41 @@ local function UnregisterChatEvents()
     chatEventsRegistered = false
 end
 
+-- Roster scan: count online members within maxRequiredGroup and return member info helper
+local function ComputeTrackedCount()
+    local inRaid = IsInRaid()
+    local totalMembers = GetNumGroupMembers() or 0
+    local count = 0
+    for i = 1, totalMembers do
+        if inRaid then
+            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
+            if name and online then
+                if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                    count = count + 1
+                end
+            end
+        else
+            local unit = (i == 1) and "player" or ("party" .. (i - 1))
+            if UnitExists(unit) then
+                local online = UnitIsConnected and UnitIsConnected(unit) or true
+                if online then
+                    count = count + 1
+                end
+            end
+        end
+    end
+    return count
+end
+
+-- Count confirmed entries in readyMap
+local function CountConfirmed()
+    local n = 0
+    for _, v in pairs(readyMap) do
+        if v == true then n = n + 1 end
+    end
+    return n
+end
+
 -- Start a ready check and ensure chat listeners are active.
 -- Declared local and exported explicitly to avoid accidental globals.
 local function RCPT_RunReadyCheck()
@@ -115,7 +177,9 @@ f:SetScript("OnEvent", function(_, event, ...)
                 readyMap = {}
                 local me = FullNameForUnit("player")
                 if me then readyMap[me] = true end
+                trackedTotal = ComputeTrackedCount()
                 Debug("You initiated the ready check")
+                FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, trackedCount = trackedTotal })
             else
                 initiatedByMe = false
                 Debug("Another player initiated the ready check, ignoring")
@@ -131,6 +195,7 @@ f:SetScript("OnEvent", function(_, event, ...)
             local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
             readyMap[fullName] = isReady
             Debug(fullName .. " is " .. (isReady and "READY" or "NOT ready"))
+            FireCallback("RC_CONFIRM", { fullName = fullName, isReady = isReady, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
         end
 
     elseif event == "READY_CHECK_FINISHED" then
@@ -185,7 +250,9 @@ f:SetScript("OnEvent", function(_, event, ...)
 
         if allReady then
             Debug("Everyone is ready, starting pull timer")
+            FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
             StartPullTimer(DB.pullDuration)
+            FireCallback("PULL_STARTED", { duration = DB.pullDuration })
             
             -- Cancel old one before scheduling a new one
             if scheduledCleanup then
@@ -197,16 +264,23 @@ f:SetScript("OnEvent", function(_, event, ...)
                 UnregisterChatEvents()
                 scheduledCleanup = nil
                 initiatedByMe = false
+                FireCallback("CYCLE_COMPLETE", {})
             end)
         else
             Debug("Not everyone is ready")
             if DB.retryTimeout and retryCount < DB.maxRetries then
                 retryCount = retryCount + 1
+                local notReadyCount = trackedTotal - CountConfirmed()
+                FireCallback("RC_FAILED_RETRY", { notReadyCount = notReadyCount, trackedCount = trackedTotal, retryNum = retryCount, maxRetries = DB.maxRetries, retryTimeout = DB.retryTimeout })
                 C_Timer.After(DB.retryTimeout, function()
+                    trackedTotal = ComputeTrackedCount()
+                    FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, trackedCount = trackedTotal })
                     DoReadyCheck()
                 end)
             else
                 Debug("Max retries reached")
+                local notReadyCount = trackedTotal - CountConfirmed()
+                FireCallback("RC_FAILED_FINAL", { notReadyCount = notReadyCount, trackedCount = trackedTotal })
                 UnregisterChatEvents()
                 initiatedByMe = false
             end
@@ -225,6 +299,7 @@ f:SetScript("OnEvent", function(_, event, ...)
             if msg:match(keyword:lower()) then
                 Debug("Cancel keyword detected: " .. keyword)
                 CancelPullTimer()
+                FireCallback("PULL_CANCELLED", {})
                 break
             end
         end
@@ -299,6 +374,9 @@ local function Teardown()
     retryCount = 0
     initiatedByMe = false
     readyMap = {}
+    trackedTotal = 0
+    FireCallback("CYCLE_COMPLETE", {})
+    if _G.RCPT_PullTimers_UI_Teardown then pcall(_G.RCPT_PullTimers_UI_Teardown) end
     Debug("PullTimers module torn down.")
 end
 
