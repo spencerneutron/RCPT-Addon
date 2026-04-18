@@ -82,6 +82,22 @@ local function FullNameForUnit(unit)
     return MakeFullNameFromParts(name, realm)
 end
 
+-- Resolve a unit's name in the same format that GetRaidRosterInfo returns.
+-- In a raid, GetRaidRosterInfo always includes the realm suffix ("Name-Realm")
+-- while UnitFullName returns an empty realm for same-server players.  Using
+-- this function for readyMap keys ensures they match the lookup format used
+-- in READY_CHECK_FINISHED and CountConfirmed.
+local function RosterNameForUnit(unit)
+    if IsInRaid() then
+        local raidIndex = UnitInRaid(unit)
+        if raidIndex then
+            local name = GetRaidRosterInfo(raidIndex + 1)
+            if name then return name end
+        end
+    end
+    return FullNameForUnit(unit)
+end
+
 -- Check whether the local player is in a tracked subgroup (within maxRequiredGroup).
 -- Returns true when either maxRequiredGroup filtering is disabled or the player's
 -- subgroup does not exceed it.  Used to decide whether to auto-mark the sender
@@ -195,7 +211,7 @@ local function RCPT_RunReadyCheck()
     -- Only auto-mark the sender as ready if they are in a tracked group;
     -- out-of-group initiators must not inflate the confirmed count.
     if IsPlayerInTrackedGroup() then
-        local me = FullNameForUnit("player")
+        local me = RosterNameForUnit("player")
         if me then readyMap[me] = true end
     else
         Debug("Sender is outside tracked groups; not auto-marking as ready")
@@ -227,7 +243,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                 readyMap = {}
                 -- Only auto-mark the sender as ready if they are in a tracked group
                 if IsPlayerInTrackedGroup() then
-                    local me = FullNameForUnit("player")
+                    local me = RosterNameForUnit("player")
                     if me then readyMap[me] = true end
                 else
                     Debug("Sender is outside tracked groups; not auto-marking as ready")
@@ -245,9 +261,8 @@ f:SetScript("OnEvent", function(_, event, ...)
             return
         end
         local unitToken, isReady = ...
-        local name, realm = UnitFullName(unitToken)
-        if name then
-            local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
+        local fullName = RosterNameForUnit(unitToken)
+        if fullName then
             readyMap[fullName] = isReady
             Debug(fullName .. " is " .. (isReady and "READY" or "NOT ready"))
             FireCallback("RC_CONFIRM", { fullName = fullName, isReady = isReady, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
