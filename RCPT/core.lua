@@ -21,6 +21,7 @@ Addon.TalentDefaults = {
     SendPartyChatNotification = false,
     MinDurabilityPercent = 80,
     ReplaceReadyCheck = true,
+    RaidReportChannel = "RAID",
 }
 
 -- Migration table: add functions keyed by the target version number.

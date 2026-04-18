@@ -893,7 +893,8 @@ local function ReadyCheckHandler(initiator)
                         end
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
                         local channel = nil
-                        if IsInRaid and IsInRaid() then channel = "RAID"
+                        if IsInRaid and IsInRaid() then
+                                channel = (TDB and TDB.RaidReportChannel) or "RAID"
                         elseif IsInGroup and IsInGroup() then channel = "PARTY" end
                         if channel then
                                 SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), channel)

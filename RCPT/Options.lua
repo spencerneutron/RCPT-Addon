@@ -48,6 +48,7 @@ function Options.Init(addon)
         end
         TDB.SendPartyChatNotification = TDB.SendPartyChatNotification == nil and false or TDB.SendPartyChatNotification
         TDB.MinDurabilityPercent = TDB.MinDurabilityPercent or 80
+        TDB.RaidReportChannel = TDB.RaidReportChannel or "RAID"
         TDB.ReplaceReadyCheck = TDB.ReplaceReadyCheck == nil and true or TDB.ReplaceReadyCheck
     end
 
@@ -158,6 +159,16 @@ function Options.Init(addon)
         set = function(v) TDB.ReplaceReadyCheck = v end,
     })
 
+    local ddRaidChannel = b:AddDropdown("RCPT_Talent_RaidChannelDD", {
+        label = "Raid talent report channel",
+        items = {
+            { value = "RAID", text = "Raid Chat" },
+            { value = "PARTY", text = "Party Chat (group only)" },
+        },
+        get = function() return TDB.RaidReportChannel or "RAID" end,
+        set = function(v) TDB.RaidReportChannel = v end,
+    })
+
     b:AddButton("RCPT_Talent_TestOverlay", "Test Ready Check", 140, function()
         pcall(function()
             if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.SimulateReadyCheckEvent then
@@ -195,6 +206,7 @@ function Options.Init(addon)
         if minDurSlider then minDurSlider:SetValue(TDB.MinDurabilityPercent or 80) end
         if minDurSlider and minDurSlider.Value then minDurSlider.Value:SetText(tostring(TDB.MinDurabilityPercent or 80)) end
         if cbReplace then cbReplace:SetChecked(not not TDB.ReplaceReadyCheck) end
+        if ddRaidChannel and ddRaidChannel.RefreshValue then ddRaidChannel:RefreshValue() end
     end
 
     function panel.default()
@@ -210,6 +222,7 @@ function Options.Init(addon)
         TDB.SendPartyChatNotification = false
         TDB.MinDurabilityPercent = 80
         TDB.ReplaceReadyCheck = true
+        TDB.RaidReportChannel = "RAID"
         panel.refresh()
     end
 
