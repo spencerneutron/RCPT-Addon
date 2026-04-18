@@ -272,6 +272,74 @@ function OptionsBuilder:AddButton(name, label, width, onClick)
     return btn
 end
 
+-- Add a dropdown (select list)
+-- opts: {label=string, items={{value=string,text=string},...}, get=function->string, set=function(string)}
+function OptionsBuilder:AddDropdown(name, opts)
+    opts = opts or {}
+    local parentFor = self.content or self.panel
+
+    if opts.label then
+        local lbl = parentFor:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        lbl:SetText(opts.label)
+        self:_place(lbl, "left")
+    end
+
+    local dd = CreateFrame("Frame", name, parentFor, "UIDropDownMenuTemplate")
+    dd:SetPoint("TOPLEFT", parentFor, "TOPLEFT", (self.x or self.leftX) - self.leftX - 16, self.y - self.startY)
+    self.y = self.y - self.spacing
+    if self._currentGroup and self._currentGroup._childBottom then
+        if self.y < self._currentGroup._childBottom then
+            self._currentGroup._childBottom = self.y
+        end
+    end
+
+    UIDropDownMenu_SetWidth(dd, opts.width or self.width)
+
+    local items = opts.items or {}
+    local function Initialize(self, level)
+        for _, item in ipairs(items) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = item.text or item.value
+            info.value = item.value
+            info.func = function(btn)
+                UIDropDownMenu_SetSelectedValue(dd, btn.value)
+                UIDropDownMenu_SetText(dd, btn:GetText())
+                if opts.set then opts.set(btn.value) end
+            end
+            info.checked = (opts.get and opts.get() == item.value) or false
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+
+    UIDropDownMenu_Initialize(dd, Initialize)
+    if opts.get then
+        local cur = opts.get()
+        UIDropDownMenu_SetSelectedValue(dd, cur)
+        for _, item in ipairs(items) do
+            if item.value == cur then
+                UIDropDownMenu_SetText(dd, item.text or item.value)
+                break
+            end
+        end
+    end
+
+    -- helper to refresh the dropdown from outside
+    dd.RefreshValue = function()
+        if opts.get then
+            local cur = opts.get()
+            UIDropDownMenu_SetSelectedValue(dd, cur)
+            for _, item in ipairs(items) do
+                if item.value == cur then
+                    UIDropDownMenu_SetText(dd, item.text or item.value)
+                    break
+                end
+            end
+        end
+    end
+
+    return dd
+end
+
 -- Register panel with Interface Options APIs and return panel
 function OptionsBuilder:Finish()
     
