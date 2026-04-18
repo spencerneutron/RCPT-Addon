@@ -69,7 +69,7 @@ local frame = CreateFrame("Frame", addonName .. "TalentCheckFrame")
 local overlay = nil
 local GetSpecAndLoadout
 local function CreateReadyOverlay()
-        if overlay and overlay:IsShown() then return overlay end
+        if overlay and overlay.IsActiveOverlay and overlay:IsActiveOverlay() then return overlay end
         if overlay then return overlay end
 
         overlay = CreateFrame("Frame", addonName .. "ReadyOverlay", UIParent, "BackdropTemplate")
@@ -543,7 +543,7 @@ local function CreateReadyOverlay()
                                                 end
                                         end
                                         -- update mini view if showing
-                                        if overlay.mini and overlay.mini:IsShown() then
+                                        if overlay.mini and overlay.mini.IsActiveOverlay and overlay.mini:IsActiveOverlay() then
                                                PopulateMini(overlay.mini)
                                         end
                         end)
@@ -587,6 +587,13 @@ local function CreateReadyOverlay()
                 end)
 
                 m:Hide()
+
+                -- Single source of truth for mini overlay visibility
+                m.IsActiveOverlay = function(self) return self:IsShown() end
+                if _G.RCPT and _G.RCPT.RegisterOverlayFrame then
+                        _G.RCPT:RegisterOverlayFrame("TalentCheckMiniOverlay", m)
+                end
+
                 overlay.mini = m
                 return m
         end
@@ -762,6 +769,14 @@ local function CreateReadyOverlay()
         end)
 
         overlay:Hide()
+
+        -- Single source of truth for "is this overlay active and in use?"
+        overlay.IsActiveOverlay = function(self) return self:IsShown() end
+        -- Register with core so other modules (e.g. PullTimers) can discover it
+        if _G.RCPT and _G.RCPT.RegisterOverlayFrame then
+                _G.RCPT:RegisterOverlayFrame("TalentCheckOverlay", overlay)
+        end
+
         return overlay
 end
 
@@ -1104,6 +1119,11 @@ end
 local function TalentTeardown()
     if _G.RCPT_TalentCheck and _G.RCPT_TalentCheck.HideOverlay then
         pcall(_G.RCPT_TalentCheck.HideOverlay)
+    end
+    -- Unregister overlay frames from the shared registry
+    if _G.RCPT and _G.RCPT.UnregisterOverlayFrame then
+        pcall(_G.RCPT.UnregisterOverlayFrame, _G.RCPT, "TalentCheckOverlay")
+        pcall(_G.RCPT.UnregisterOverlayFrame, _G.RCPT, "TalentCheckMiniOverlay")
     end
     frame:UnregisterAllEvents()
     frame:SetScript("OnEvent", nil)

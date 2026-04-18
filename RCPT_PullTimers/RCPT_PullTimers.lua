@@ -8,8 +8,35 @@ local readyMap = {}
 local scheduledCleanup
 local initiatedByMe = false
 local chatEventsRegistered = false
+local trackedTotal = 0
 
 local Module = {}
+
+-- Callback pub/sub for UI consumers
+local callbacks = {}
+
+local function FireCallback(event, payload)
+    if not callbacks[event] then return end
+    for fn in pairs(callbacks[event]) do
+        pcall(fn, event, payload)
+    end
+end
+
+function _G.RCPT_PullTimers_RegisterCallback(event, fn)
+    if not event or type(fn) ~= "function" then return end
+    if not callbacks[event] then callbacks[event] = {} end
+    callbacks[event][fn] = true
+end
+
+function _G.RCPT_PullTimers_UnregisterCallback(event, fn)
+    if callbacks[event] then
+        callbacks[event][fn] = nil
+    end
+end
+
+function _G.RCPT_PullTimers_UnregisterAllCallbacks()
+    callbacks = {}
+end
 
 -- Ensure defaults from config.lua are applied (safe-call)
 if RCPT_InitDefaults then pcall(RCPT_InitDefaults) end
@@ -40,6 +67,30 @@ local function CancelPullTimer()
     end
 end
 
+-- ==========================================================================
+-- WoW Raid Roster API Notes (verified in-game, April 2026)
+-- ==========================================================================
+-- UnitInRaid("player")
+--   Returns the player's raid index as used by GetRaidRosterInfo (1-based).
+--   Returns nil if the player is not in a raid.
+--
+-- GetRaidRosterInfo(index)
+--   Accepts the same index returned by UnitInRaid — no +1 offset needed.
+--   Name format varies by server:
+--     Same server  -> "Name"           (no realm suffix)
+--     Cross server -> "Name-Realm"     (realm appended with hyphen)
+--
+-- UnitFullName(unit)
+--   Returns (name, realm) as two values.
+--   Same server  -> ("Name", "Sargeras")   (realm is populated, non-empty)
+--   Cross server -> ("Name", "Kel'Thuzad") (realm is populated, non-empty)
+--
+-- Key difference: GetRaidRosterInfo OMITS the realm for same-server players,
+-- while UnitFullName ALWAYS returns a non-empty realm string. Mixing the two
+-- as table keys causes lookup mismatches. Any code writing to and reading from
+-- the same table (e.g. readyMap) must use a single consistent name source.
+-- ==========================================================================
+
 -- Normalize unit/name returns into a single full-name string used as keys
 local function MakeFullNameFromParts(name, realm)
     if not name then return nil end
@@ -53,6 +104,41 @@ local function FullNameForUnit(unit)
     local ok, name, realm = pcall(UnitFullName, unit)
     if not ok or not name then return nil end
     return MakeFullNameFromParts(name, realm)
+end
+
+-- Resolve a unit's name in the same format that GetRaidRosterInfo returns.
+-- In a raid, GetRaidRosterInfo omits the realm for same-server players
+-- ("Name") while UnitFullName always populates the realm ("Name", "Realm").
+-- Using this function for readyMap keys ensures they match the lookup format
+-- used in READY_CHECK_FINISHED and CountConfirmed.
+local function RosterNameForUnit(unit)
+    if IsInRaid() then
+        local raidIndex = UnitInRaid(unit)
+        if raidIndex then
+            local name = GetRaidRosterInfo(raidIndex)
+            if name then return name end
+        end
+    end
+    return FullNameForUnit(unit)
+end
+
+-- Check whether the local player is in a tracked subgroup (within maxRequiredGroup).
+-- Returns true when either maxRequiredGroup filtering is disabled or the player's
+-- subgroup does not exceed it.  Used to decide whether to auto-mark the sender
+-- as "ready" so that out-of-group initiators don't inflate the confirmed count.
+local function IsPlayerInTrackedGroup()
+    if not DB.maxRequiredGroup or DB.maxRequiredGroup <= 0 then
+        return true -- filtering disabled, all groups tracked
+    end
+    if not IsInRaid() then
+        return true -- party members are always treated as subgroup 1
+    end
+    -- Use UnitInRaid to get the player's raid index directly,
+    -- avoiding name-format mismatches between UnitFullName and GetRaidRosterInfo.
+    local raidIndex = UnitInRaid("player")
+    if not raidIndex then return false end
+    local _, _, subgroup = GetRaidRosterInfo(raidIndex)
+    return subgroup ~= nil and subgroup <= DB.maxRequiredGroup
 end
 
 -- Chat event registration helpers
@@ -79,6 +165,66 @@ local function UnregisterChatEvents()
     chatEventsRegistered = false
 end
 
+-- Roster scan: count online members within maxRequiredGroup and return member info helper
+local function ComputeTrackedCount()
+    local inRaid = IsInRaid()
+    local totalMembers = GetNumGroupMembers() or 0
+    local count = 0
+    for i = 1, totalMembers do
+        if inRaid then
+            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
+            if name and online then
+                if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                    count = count + 1
+                end
+            end
+        else
+            local unit = (i == 1) and "player" or ("party" .. (i - 1))
+            if UnitExists(unit) then
+                local online = not UnitIsConnected or UnitIsConnected(unit)
+                if online then
+                    count = count + 1
+                end
+            end
+        end
+    end
+    return count
+end
+
+-- Count confirmed (ready) entries in readyMap using the same roster, subgroup,
+-- and online filtering rules as ComputeTrackedCount, so that confirmedCount
+-- stays consistent with trackedTotal in all callback payloads.
+local function CountConfirmed()
+    local inRaid = IsInRaid()
+    local totalMembers = GetNumGroupMembers() or 0
+    local n = 0
+    for i = 1, totalMembers do
+        if inRaid then
+            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
+            if name and online then
+                if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                    if readyMap[name] == true then
+                        n = n + 1
+                    end
+                end
+            end
+        else
+            local unit = (i == 1) and "player" or ("party" .. (i - 1))
+            if UnitExists(unit) then
+                local uname, realm = UnitFullName(unit)
+                if uname then
+                    local fullName = realm and realm ~= "" and (uname .. "-" .. realm) or uname
+                    local online = not UnitIsConnected or UnitIsConnected(unit)
+                    if online and readyMap[fullName] == true then
+                        n = n + 1
+                    end
+                end
+            end
+        end
+    end
+    return n
+end
+
 -- Start a ready check and ensure chat listeners are active.
 -- Declared local and exported explicitly to avoid accidental globals.
 local function RCPT_RunReadyCheck()
@@ -86,8 +232,14 @@ local function RCPT_RunReadyCheck()
     RegisterChatEvents()
     readyMap = {}
 
-    local me = FullNameForUnit("player")
-    if me then readyMap[me] = true end
+    -- Only auto-mark the sender as ready if they are in a tracked group;
+    -- out-of-group initiators must not inflate the confirmed count.
+    if IsPlayerInTrackedGroup() then
+        local me = RosterNameForUnit("player")
+        if me then readyMap[me] = true end
+    else
+        Debug("Sender is outside tracked groups; not auto-marking as ready")
+    end
 
     DoReadyCheck()
 end
@@ -113,9 +265,16 @@ f:SetScript("OnEvent", function(_, event, ...)
             if isSelf then
                 initiatedByMe = true
                 readyMap = {}
-                local me = FullNameForUnit("player")
-                if me then readyMap[me] = true end
+                -- Only auto-mark the sender as ready if they are in a tracked group
+                if IsPlayerInTrackedGroup() then
+                    local me = RosterNameForUnit("player")
+                    if me then readyMap[me] = true end
+                else
+                    Debug("Sender is outside tracked groups; not auto-marking as ready")
+                end
+                trackedTotal = ComputeTrackedCount()
                 Debug("You initiated the ready check")
+                FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
             else
                 initiatedByMe = false
                 Debug("Another player initiated the ready check, ignoring")
@@ -126,11 +285,11 @@ f:SetScript("OnEvent", function(_, event, ...)
             return
         end
         local unitToken, isReady = ...
-        local name, realm = UnitFullName(unitToken)
-        if name then
-            local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
+        local fullName = RosterNameForUnit(unitToken)
+        if fullName then
             readyMap[fullName] = isReady
             Debug(fullName .. " is " .. (isReady and "READY" or "NOT ready"))
+            FireCallback("RC_CONFIRM", { fullName = fullName, isReady = isReady, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
         end
 
     elseif event == "READY_CHECK_FINISHED" then
@@ -159,7 +318,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                     local name, realm = UnitFullName(unit)
                     if name then
                         local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
-                        local online = UnitIsConnected and UnitIsConnected(unit) or true
+                        local online = not UnitIsConnected or UnitIsConnected(unit)
                         -- treat party members as subgroup 1 for the purpose of maxRequiredGroup checks
                         return fullName, 1, online
                     end
@@ -185,7 +344,9 @@ f:SetScript("OnEvent", function(_, event, ...)
 
         if allReady then
             Debug("Everyone is ready, starting pull timer")
+            FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
             StartPullTimer(DB.pullDuration)
+            FireCallback("PULL_STARTED", { duration = DB.pullDuration })
             
             -- Cancel old one before scheduling a new one
             if scheduledCleanup then
@@ -197,16 +358,23 @@ f:SetScript("OnEvent", function(_, event, ...)
                 UnregisterChatEvents()
                 scheduledCleanup = nil
                 initiatedByMe = false
+                FireCallback("CYCLE_COMPLETE", {})
             end)
         else
             Debug("Not everyone is ready")
             if DB.retryTimeout and retryCount < DB.maxRetries then
                 retryCount = retryCount + 1
+                local notReadyCount = trackedTotal - CountConfirmed()
+                FireCallback("RC_FAILED_RETRY", { notReadyCount = notReadyCount, trackedCount = trackedTotal, retryNum = retryCount, maxRetries = DB.maxRetries, retryTimeout = DB.retryTimeout })
                 C_Timer.After(DB.retryTimeout, function()
+                    trackedTotal = ComputeTrackedCount()
+                    FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
                     DoReadyCheck()
                 end)
             else
                 Debug("Max retries reached")
+                local notReadyCount = trackedTotal - CountConfirmed()
+                FireCallback("RC_FAILED_FINAL", { notReadyCount = notReadyCount, trackedCount = trackedTotal })
                 UnregisterChatEvents()
                 initiatedByMe = false
             end
@@ -225,6 +393,7 @@ f:SetScript("OnEvent", function(_, event, ...)
             if msg:match(keyword:lower()) then
                 Debug("Cancel keyword detected: " .. keyword)
                 CancelPullTimer()
+                FireCallback("PULL_CANCELLED", {})
                 break
             end
         end
@@ -299,6 +468,9 @@ local function Teardown()
     retryCount = 0
     initiatedByMe = false
     readyMap = {}
+    trackedTotal = 0
+    FireCallback("CYCLE_COMPLETE", {})
+    if _G.RCPT_PullTimers_UI_Teardown then pcall(_G.RCPT_PullTimers_UI_Teardown) end
     Debug("PullTimers module torn down.")
 end
 
