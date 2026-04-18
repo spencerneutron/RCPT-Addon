@@ -93,16 +93,12 @@ local function IsPlayerInTrackedGroup()
     if not IsInRaid() then
         return true -- party members are always treated as subgroup 1
     end
-    local totalMembers = GetNumGroupMembers() or 0
-    local me = FullNameForUnit("player")
-    if not me then return false end
-    for i = 1, totalMembers do
-        local name, _, subgroup = GetRaidRosterInfo(i)
-        if name and name == me then
-            return subgroup <= DB.maxRequiredGroup
-        end
-    end
-    return false -- player not found in roster (shouldn't happen)
+    -- Use UnitInRaid to get the player's 0-based raid index directly,
+    -- avoiding name-format mismatches between UnitFullName and GetRaidRosterInfo.
+    local raidIndex = UnitInRaid("player")
+    if not raidIndex then return false end
+    local _, _, subgroup = GetRaidRosterInfo(raidIndex + 1)
+    return subgroup ~= nil and subgroup <= DB.maxRequiredGroup
 end
 
 -- Chat event registration helpers
