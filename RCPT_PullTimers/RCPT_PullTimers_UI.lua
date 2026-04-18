@@ -278,13 +278,14 @@ local function OnRCSent(_, payload)
     AdvanceTo(1, "success")
     AdvanceTo(2, "active")
 
-    local retryNum = payload and payload.retryNum or 0
-    local tracked  = payload and payload.trackedCount or 0
+    local retryNum  = payload and payload.retryNum or 0
+    local tracked   = payload and payload.trackedCount or 0
+    local confirmed = payload and payload.confirmedCount or 0
 
     if retryNum > 0 then
         statusText:SetText("Ready check sent (retry " .. retryNum .. "/" .. (payload.maxRetries or 0) .. ")")
     else
-        statusText:SetText("Waiting for responses (1/" .. tracked .. " ready)")
+        statusText:SetText("Waiting for responses (" .. confirmed .. "/" .. tracked .. " ready)")
     end
 end
 

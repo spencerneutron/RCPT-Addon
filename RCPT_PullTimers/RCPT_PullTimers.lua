@@ -122,7 +122,7 @@ local function ComputeTrackedCount()
         else
             local unit = (i == 1) and "player" or ("party" .. (i - 1))
             if UnitExists(unit) then
-                local online = UnitIsConnected and UnitIsConnected(unit) or true
+                local online = not UnitIsConnected or UnitIsConnected(unit)
                 if online then
                     count = count + 1
                 end
@@ -132,11 +132,36 @@ local function ComputeTrackedCount()
     return count
 end
 
--- Count confirmed entries in readyMap
+-- Count confirmed (ready) entries in readyMap using the same roster, subgroup,
+-- and online filtering rules as ComputeTrackedCount, so that confirmedCount
+-- stays consistent with trackedTotal in all callback payloads.
 local function CountConfirmed()
+    local inRaid = IsInRaid()
+    local totalMembers = GetNumGroupMembers() or 0
     local n = 0
-    for _, v in pairs(readyMap) do
-        if v == true then n = n + 1 end
+    for i = 1, totalMembers do
+        if inRaid then
+            local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(i)
+            if name and online then
+                if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                    if readyMap[name] == true then
+                        n = n + 1
+                    end
+                end
+            end
+        else
+            local unit = (i == 1) and "player" or ("party" .. (i - 1))
+            if UnitExists(unit) then
+                local uname, realm = UnitFullName(unit)
+                if uname then
+                    local fullName = realm and realm ~= "" and (uname .. "-" .. realm) or uname
+                    local online = not UnitIsConnected or UnitIsConnected(unit)
+                    if online and readyMap[fullName] == true then
+                        n = n + 1
+                    end
+                end
+            end
+        end
     end
     return n
 end
@@ -179,7 +204,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                 if me then readyMap[me] = true end
                 trackedTotal = ComputeTrackedCount()
                 Debug("You initiated the ready check")
-                FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, trackedCount = trackedTotal })
+                FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
             else
                 initiatedByMe = false
                 Debug("Another player initiated the ready check, ignoring")
@@ -224,7 +249,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                     local name, realm = UnitFullName(unit)
                     if name then
                         local fullName = realm and realm ~= "" and (name .. "-" .. realm) or name
-                        local online = UnitIsConnected and UnitIsConnected(unit) or true
+                        local online = not UnitIsConnected or UnitIsConnected(unit)
                         -- treat party members as subgroup 1 for the purpose of maxRequiredGroup checks
                         return fullName, 1, online
                     end
@@ -274,7 +299,7 @@ f:SetScript("OnEvent", function(_, event, ...)
                 FireCallback("RC_FAILED_RETRY", { notReadyCount = notReadyCount, trackedCount = trackedTotal, retryNum = retryCount, maxRetries = DB.maxRetries, retryTimeout = DB.retryTimeout })
                 C_Timer.After(DB.retryTimeout, function()
                     trackedTotal = ComputeTrackedCount()
-                    FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, trackedCount = trackedTotal })
+                    FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
                     DoReadyCheck()
                 end)
             else
