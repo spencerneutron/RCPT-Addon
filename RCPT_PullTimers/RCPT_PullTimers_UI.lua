@@ -97,6 +97,7 @@ end
 local function ResetBreadcrumbs()
     for i = 1, 4 do
         SetStepState(i, "inactive")
+        if steps[i] then steps[i]._state = "inactive" end
     end
     currentStep = 0
 end
