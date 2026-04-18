@@ -134,6 +134,38 @@ function Addon:InitModules()
     self._modulesInitialized = true
 end
 
+-- Overlay frame registry: single source of truth for "is this overlay active?"
+-- Modules register their overlay frames here so other modules can discover and
+-- query them without hardcoding global frame names or duplicating visibility logic.
+Addon.overlayFrames = Addon.overlayFrames or {}
+
+-- Register an overlay frame.  The frame should implement :IsActiveOverlay().
+function Addon:RegisterOverlayFrame(key, frame)
+    if not key or not frame then return end
+    self.overlayFrames[key] = frame
+end
+
+-- Unregister an overlay frame (e.g. on module teardown).
+function Addon:UnregisterOverlayFrame(key)
+    if self.overlayFrames then self.overlayFrames[key] = nil end
+end
+
+-- Check whether a registered overlay is currently active (shown and in use).
+function Addon:IsOverlayActive(key)
+    local f = self.overlayFrames and self.overlayFrames[key]
+    if not f then return false end
+    if type(f.IsActiveOverlay) == "function" then
+        local ok, result = pcall(f.IsActiveOverlay, f)
+        return ok and result == true
+    end
+    return false
+end
+
+-- Return the raw frame object for a registered overlay.
+function Addon:GetOverlayFrame(key)
+    return self.overlayFrames and self.overlayFrames[key] or nil
+end
+
 -- Safe wrapper for UnitIsUnit to protect against Secret/tainted errors
 function Addon.SafeUnitIsUnit(a, b)
     if type(UnitIsUnit) ~= "function" then return false end

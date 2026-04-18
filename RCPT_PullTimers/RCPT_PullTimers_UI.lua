@@ -123,17 +123,18 @@ end
 -- Frame creation (lazy)
 ---------------------------------------------------------------------------
 local function ResolveAnchor()
-    -- Priority: TalentCheck overlay > ReadyCheckFrame > UIParent center
-    local talentOverlay = _G["RCPT_TalentCheckReadyOverlay"]
-    if talentOverlay and talentOverlay.IsShown and talentOverlay:IsShown() then
-        return talentOverlay
+    -- Priority: TalentCheck overlay > TalentCheck mini > ReadyCheckFrame > UIParent center
+    -- Uses the shared overlay registry in RCPT core as the single source of truth.
+    local RCPT = _G.RCPT
+    if RCPT and RCPT.IsOverlayActive then
+        if RCPT:IsOverlayActive("TalentCheckOverlay") then
+            return RCPT:GetOverlayFrame("TalentCheckOverlay")
+        end
+        if RCPT:IsOverlayActive("TalentCheckMiniOverlay") then
+            return RCPT:GetOverlayFrame("TalentCheckMiniOverlay")
+        end
     end
-    -- check mini overlay
-    local talentMini = _G["RCPT_TalentCheckReadyMiniOverlay"]
-    if talentMini and talentMini.IsShown and talentMini:IsShown() then
-        return talentMini
-    end
-    if ReadyCheckFrame and ReadyCheckFrame.IsShown then
+    if ReadyCheckFrame and ReadyCheckFrame.IsShown and ReadyCheckFrame:IsShown() then
         return ReadyCheckFrame
     end
     return nil
