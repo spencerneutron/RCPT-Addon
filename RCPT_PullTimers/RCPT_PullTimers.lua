@@ -82,6 +82,29 @@ local function FullNameForUnit(unit)
     return MakeFullNameFromParts(name, realm)
 end
 
+-- Check whether the local player is in a tracked subgroup (within maxRequiredGroup).
+-- Returns true when either maxRequiredGroup filtering is disabled or the player's
+-- subgroup does not exceed it.  Used to decide whether to auto-mark the sender
+-- as "ready" so that out-of-group initiators don't inflate the confirmed count.
+local function IsPlayerInTrackedGroup()
+    if not DB.maxRequiredGroup or DB.maxRequiredGroup <= 0 then
+        return true -- filtering disabled, all groups tracked
+    end
+    if not IsInRaid() then
+        return true -- party members are always treated as subgroup 1
+    end
+    local totalMembers = GetNumGroupMembers() or 0
+    local me = FullNameForUnit("player")
+    if not me then return false end
+    for i = 1, totalMembers do
+        local name, _, subgroup = GetRaidRosterInfo(i)
+        if name and name == me then
+            return subgroup <= DB.maxRequiredGroup
+        end
+    end
+    return false -- player not found in roster (shouldn't happen)
+end
+
 -- Chat event registration helpers
 local function RegisterChatEvents()
     if chatEventsRegistered then return end
@@ -173,8 +196,14 @@ local function RCPT_RunReadyCheck()
     RegisterChatEvents()
     readyMap = {}
 
-    local me = FullNameForUnit("player")
-    if me then readyMap[me] = true end
+    -- Only auto-mark the sender as ready if they are in a tracked group;
+    -- out-of-group initiators must not inflate the confirmed count.
+    if IsPlayerInTrackedGroup() then
+        local me = FullNameForUnit("player")
+        if me then readyMap[me] = true end
+    else
+        Debug("Sender is outside tracked groups; not auto-marking as ready")
+    end
 
     DoReadyCheck()
 end
@@ -200,8 +229,13 @@ f:SetScript("OnEvent", function(_, event, ...)
             if isSelf then
                 initiatedByMe = true
                 readyMap = {}
-                local me = FullNameForUnit("player")
-                if me then readyMap[me] = true end
+                -- Only auto-mark the sender as ready if they are in a tracked group
+                if IsPlayerInTrackedGroup() then
+                    local me = FullNameForUnit("player")
+                    if me then readyMap[me] = true end
+                else
+                    Debug("Sender is outside tracked groups; not auto-marking as ready")
+                end
                 trackedTotal = ComputeTrackedCount()
                 Debug("You initiated the ready check")
                 FireCallback("RC_SENT", { retryNum = retryCount, maxRetries = DB.maxRetries, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
