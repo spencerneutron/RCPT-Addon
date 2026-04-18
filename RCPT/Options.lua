@@ -113,7 +113,7 @@ function Options.Init(addon)
     })
 
     local maxGroupSlider = b:AddSlider("RCPT_MaxRequiredGroupSlider", {
-        min = 0, max = 8, step = 1, label = "Only Check Raid Group 1 through: (0 = all)",
+        min = 0, max = 8, step = 1, label = "Check Raid Group 1 through: (0 = all)",
         get = function() return DB.maxRequiredGroup end,
         set = function(v) DB.maxRequiredGroup = v end,
     })
