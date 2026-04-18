@@ -83,15 +83,15 @@ local function FullNameForUnit(unit)
 end
 
 -- Resolve a unit's name in the same format that GetRaidRosterInfo returns.
--- In a raid, GetRaidRosterInfo always includes the realm suffix ("Name-Realm")
--- while UnitFullName returns an empty realm for same-server players.  Using
--- this function for readyMap keys ensures they match the lookup format used
--- in READY_CHECK_FINISHED and CountConfirmed.
+-- In a raid, GetRaidRosterInfo omits the realm for same-server players
+-- ("Name") while UnitFullName always populates the realm ("Name", "Realm").
+-- Using this function for readyMap keys ensures they match the lookup format
+-- used in READY_CHECK_FINISHED and CountConfirmed.
 local function RosterNameForUnit(unit)
     if IsInRaid() then
         local raidIndex = UnitInRaid(unit)
         if raidIndex then
-            local name = GetRaidRosterInfo(raidIndex + 1)
+            local name = GetRaidRosterInfo(raidIndex)
             if name then return name end
         end
     end
@@ -109,11 +109,11 @@ local function IsPlayerInTrackedGroup()
     if not IsInRaid() then
         return true -- party members are always treated as subgroup 1
     end
-    -- Use UnitInRaid to get the player's 0-based raid index directly,
+    -- Use UnitInRaid to get the player's raid index directly,
     -- avoiding name-format mismatches between UnitFullName and GetRaidRosterInfo.
     local raidIndex = UnitInRaid("player")
     if not raidIndex then return false end
-    local _, _, subgroup = GetRaidRosterInfo(raidIndex + 1)
+    local _, _, subgroup = GetRaidRosterInfo(raidIndex)
     return subgroup ~= nil and subgroup <= DB.maxRequiredGroup
 end
 
