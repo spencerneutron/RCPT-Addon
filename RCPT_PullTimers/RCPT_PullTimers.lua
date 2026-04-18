@@ -67,6 +67,30 @@ local function CancelPullTimer()
     end
 end
 
+-- ==========================================================================
+-- WoW Raid Roster API Notes (verified in-game, April 2026)
+-- ==========================================================================
+-- UnitInRaid("player")
+--   Returns the player's raid index as used by GetRaidRosterInfo (1-based).
+--   Returns nil if the player is not in a raid.
+--
+-- GetRaidRosterInfo(index)
+--   Accepts the same index returned by UnitInRaid — no +1 offset needed.
+--   Name format varies by server:
+--     Same server  -> "Name"           (no realm suffix)
+--     Cross server -> "Name-Realm"     (realm appended with hyphen)
+--
+-- UnitFullName(unit)
+--   Returns (name, realm) as two values.
+--   Same server  -> ("Name", "Sargeras")   (realm is populated, non-empty)
+--   Cross server -> ("Name", "Kel'Thuzad") (realm is populated, non-empty)
+--
+-- Key difference: GetRaidRosterInfo OMITS the realm for same-server players,
+-- while UnitFullName ALWAYS returns a non-empty realm string. Mixing the two
+-- as table keys causes lookup mismatches. Any code writing to and reading from
+-- the same table (e.g. readyMap) must use a single consistent name source.
+-- ==========================================================================
+
 -- Normalize unit/name returns into a single full-name string used as keys
 local function MakeFullNameFromParts(name, realm)
     if not name then return nil end
