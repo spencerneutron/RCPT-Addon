@@ -67,6 +67,7 @@ end
 local frame = CreateFrame("Frame", addonName .. "TalentCheckFrame")
 
 local overlay = nil
+local GetCurrentLoadoutName
 local GetSpecAndLoadout
 local function CreateReadyOverlay()
         if overlay and overlay.IsActiveOverlay and overlay:IsActiveOverlay() then return overlay end
@@ -780,17 +781,20 @@ local function CreateReadyOverlay()
         return overlay
 end
 
-local function GetSpecAndLoadout()
-        local specName = "Unknown Spec"
-        local loadoutName = "Unknown Loadout"
-
-        local specIndex = GetSpecialization()
-        if specIndex and specIndex > 0 then
-                local _, name = GetSpecializationInfo(specIndex)
-                if name and name ~= "" then specName = name end
+local function GetCurrentLoadoutName()
+        -- Check for Talent Loadout Ex (TLX) addon first
+        local TLX = _G.TalentLoadoutEx
+        if TLX and TLX.GetLoadedData then
+                local loadout = (TLX.GetLoadedData())
+                if loadout then
+                        return "TLX: " .. loadout.name
+                end
         end
 
+        -- Default loadout retrieval via Blizzard API
         local got = false
+        local loadoutName = "Unknown Loadout"
+
         if PlayerUtil and PlayerUtil.GetCurrentSpecID then
                 local ok, specID = pcall(PlayerUtil.GetCurrentSpecID)
                 if ok and specID and C_ClassTalents and C_ClassTalents.GetLastSelectedSavedConfigID and C_Traits and C_Traits.GetConfigInfo then
@@ -814,6 +818,22 @@ local function GetSpecAndLoadout()
                         end
                 end
         end
+
+        return loadoutName
+end
+
+_G.RCPT_GetCurrentLoadoutName = GetCurrentLoadoutName
+
+local function GetSpecAndLoadout()
+        local specName = "Unknown Spec"
+
+        local specIndex = GetSpecialization()
+        if specIndex and specIndex > 0 then
+                local _, name = GetSpecializationInfo(specIndex)
+                if name and name ~= "" then specName = name end
+        end
+
+        local loadoutName = GetCurrentLoadoutName()
 
         return specName, loadoutName
 end
@@ -891,7 +911,7 @@ local function ReadyCheckHandler(initiator)
                                 Debug("Skipping SendChatMessage due to encounter restrictions")
                                 return
                         end
-                        local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
+                        local loadoutName = _G.RCPT_GetCurrentLoadoutName()
                         local channel = nil
                         if IsInRaid and IsInRaid() then
                                 channel = (TDB and TDB.RaidReportChannel) or "RAID"
@@ -1025,6 +1045,7 @@ end
 local function ensureExports()
         _G.RCPT_TalentCheck = {
                 CheckLowDurability = CheckLowDurability,
+                GetCurrentLoadoutName = GetCurrentLoadoutName,
                 GetSpecAndLoadout = GetSpecAndLoadout,
                 TriggerReadyCheck = ReadyCheckHandler,
         }
