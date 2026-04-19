@@ -911,10 +911,14 @@ local function ReadyCheckHandler(initiator)
                                         end
                                 end
                         else
-                                -- RAID, PARTY, SAY, YELL all use the mode directly as the chat type
-                                SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), reportMode)
-                                if isLow then
-                                        SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), reportMode)
+                                -- SAY and YELL require a hardware event outside of instances; skip if not instanced
+                                if (reportMode == "SAY" or reportMode == "YELL") and not IsInInstance() then
+                                        Debug("RCPT: Skipping " .. reportMode .. " outside instance (requires hardware event)")
+                                else
+                                        SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), reportMode)
+                                        if isLow then
+                                                SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), reportMode)
+                                        end
                                 end
                         end
                 end)
