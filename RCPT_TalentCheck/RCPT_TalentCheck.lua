@@ -885,21 +885,40 @@ local function ReadyCheckHandler(initiator)
         local threshold = (TDB and TDB.MinDurabilityPercent) or 80
         local isLow, numLowSlots, avgDur = CheckLowDurability(threshold)
 
-        if TDB and TDB.SendPartyChatNotification then
+        -- Determine which report mode applies for the current group type
+        local reportMode = "NONE"
+        if IsInRaid and IsInRaid() then
+                reportMode = (TDB and TDB.RaidReportMode) or "NONE"
+        elseif IsInGroup and IsInGroup() then
+                reportMode = (TDB and TDB.PartyReportMode) or "NONE"
+        end
+
+        if reportMode and reportMode ~= "NONE" then
                 pcall(function()
                         if Addon and Addon.EncounterRestrictionsActive and Addon.EncounterRestrictionsActive() then
                                 Debug("Skipping SendChatMessage due to encounter restrictions")
                                 return
                         end
                         local specName, loadoutName = _G.RCPT_GetSpecAndLoadout()
-                        local channel = nil
-                        if IsInRaid and IsInRaid() then
-                                channel = (TDB and TDB.RaidReportChannel) or "RAID"
-                        elseif IsInGroup and IsInGroup() then channel = "PARTY" end
-                        if channel then
-                                SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), channel)
-                                if isLow then
-                                        SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), channel)
+                        if reportMode == "EMOTE" then
+                                SendChatMessage("almost forgot to set their talents to " .. (loadoutName or "Unknown Loadout"), "EMOTE")
+                        elseif reportMode == "WHISPER" then
+                                local playerName = UnitName("player")
+                                if playerName then
+                                        SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), "WHISPER", nil, playerName)
+                                        if isLow then
+                                                SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), "WHISPER", nil, playerName)
+                                        end
+                                end
+                        else
+                                -- SAY and YELL require a hardware event outside of instances; skip if not instanced
+                                if (reportMode == "SAY" or reportMode == "YELL") and not IsInInstance() then
+                                        Debug("RCPT: Skipping " .. reportMode .. " outside instance (requires hardware event)")
+                                else
+                                        SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), reportMode)
+                                        if isLow then
+                                                SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), reportMode)
+                                        end
                                 end
                         end
                 end)
