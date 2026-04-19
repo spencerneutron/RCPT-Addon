@@ -904,9 +904,11 @@ local function ReadyCheckHandler(initiator)
                                 SendChatMessage("almost forgot to set their talents to " .. (loadoutName or "Unknown Loadout"), "EMOTE")
                         elseif reportMode == "WHISPER" then
                                 local playerName = UnitName("player")
-                                SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), "WHISPER", nil, playerName)
-                                if isLow then
-                                        SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), "WHISPER", nil, playerName)
+                                if playerName then
+                                        SendChatMessage("I am currently using talents: " .. (loadoutName or "Unknown Loadout"), "WHISPER", nil, playerName)
+                                        if isLow then
+                                                SendChatMessage(string.format("Current Durability: %d%%, Low Slots: %d", math.floor((avgDur or 100) + 0.5), numLowSlots or 0), "WHISPER", nil, playerName)
+                                        end
                                 end
                         else
                                 -- RAID, PARTY, SAY, YELL all use the mode directly as the chat type
