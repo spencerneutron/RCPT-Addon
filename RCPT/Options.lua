@@ -46,9 +46,9 @@ function Options.Init(addon)
             RefreshDBs()
             return
         end
-        TDB.SendPartyChatNotification = TDB.SendPartyChatNotification == nil and false or TDB.SendPartyChatNotification
         TDB.MinDurabilityPercent = TDB.MinDurabilityPercent or 80
-        TDB.RaidReportChannel = TDB.RaidReportChannel or "RAID"
+        TDB.RaidReportMode = TDB.RaidReportMode or "NONE"
+        TDB.PartyReportMode = TDB.PartyReportMode or "NONE"
         TDB.ReplaceReadyCheck = TDB.ReplaceReadyCheck == nil and true or TDB.ReplaceReadyCheck
     end
 
@@ -141,12 +141,6 @@ function Options.Init(addon)
     local g2 = nil
     if b.BeginGroup then g2 = b:BeginGroup("TalentCheck") end
 
-    local cbParty = b:AddCheck("RCPT_Talent_SendPartyCB", {
-        label = "Send loadout notification to party",
-        get = function() return TDB.SendPartyChatNotification end,
-        set = function(v) TDB.SendPartyChatNotification = v end,
-    })
-
     local minDurSlider = b:AddSlider("RCPT_MinDurSlider", {
         min = 5, max = 100, step = 5, label = "Min durability (%)",
         get = function() return TDB.MinDurabilityPercent end,
@@ -159,14 +153,33 @@ function Options.Init(addon)
         set = function(v) TDB.ReplaceReadyCheck = v end,
     })
 
-    local ddRaidChannel = b:AddDropdown("RCPT_Talent_RaidChannelDD", {
+    local ddRaidReport = b:AddDropdown("RCPT_Talent_RaidReportDD", {
         label = "Raid talent report channel",
         items = {
-            { value = "RAID", text = "Raid Chat" },
-            { value = "PARTY", text = "Party Chat (group only)" },
+            { value = "NONE",    text = "Disabled" },
+            { value = "RAID",    text = "Raid Chat" },
+            { value = "PARTY",   text = "Party Chat" },
+            { value = "WHISPER", text = "Self-Whisper" },
+            { value = "SAY",     text = "Say" },
+            { value = "YELL",    text = "Yell" },
+            { value = "EMOTE",   text = "Emote" },
         },
-        get = function() return TDB.RaidReportChannel or "RAID" end,
-        set = function(v) TDB.RaidReportChannel = v end,
+        get = function() return TDB.RaidReportMode or "NONE" end,
+        set = function(v) TDB.RaidReportMode = v end,
+    })
+
+    local ddPartyReport = b:AddDropdown("RCPT_Talent_PartyReportDD", {
+        label = "Party talent report channel",
+        items = {
+            { value = "NONE",    text = "Disabled" },
+            { value = "PARTY",   text = "Party Chat" },
+            { value = "WHISPER", text = "Self-Whisper" },
+            { value = "SAY",     text = "Say" },
+            { value = "YELL",    text = "Yell" },
+            { value = "EMOTE",   text = "Emote" },
+        },
+        get = function() return TDB.PartyReportMode or "NONE" end,
+        set = function(v) TDB.PartyReportMode = v end,
     })
 
     b:AddButton("RCPT_Talent_TestOverlay", "Test Ready Check", 140, function()
@@ -202,11 +215,11 @@ function Options.Init(addon)
         local kws = DB.cancelKeywords or {}
         if kwBox then kwBox:SetText(table.concat(kws, ", ")) end
 
-        if cbParty then cbParty:SetChecked(not not TDB.SendPartyChatNotification) end
         if minDurSlider then minDurSlider:SetValue(TDB.MinDurabilityPercent or 80) end
         if minDurSlider and minDurSlider.Value then minDurSlider.Value:SetText(tostring(TDB.MinDurabilityPercent or 80)) end
         if cbReplace then cbReplace:SetChecked(not not TDB.ReplaceReadyCheck) end
-        if ddRaidChannel and ddRaidChannel.RefreshValue then ddRaidChannel:RefreshValue() end
+        if ddRaidReport and ddRaidReport.RefreshValue then ddRaidReport:RefreshValue() end
+        if ddPartyReport and ddPartyReport.RefreshValue then ddPartyReport:RefreshValue() end
     end
 
     function panel.default()
@@ -219,10 +232,10 @@ function Options.Init(addon)
         DB.maxRequiredGroup = 4
         DB.resetOnDungeonJoin = false
 
-        TDB.SendPartyChatNotification = false
         TDB.MinDurabilityPercent = 80
         TDB.ReplaceReadyCheck = true
-        TDB.RaidReportChannel = "RAID"
+        TDB.RaidReportMode = "NONE"
+        TDB.PartyReportMode = "NONE"
         panel.refresh()
     end
 
