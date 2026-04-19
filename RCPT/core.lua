@@ -14,20 +14,38 @@ Addon.Defaults = {
     -- Set to 0 or nil to require all groups.
     maxRequiredGroup = 4,
     resetOnDungeonJoin = false,
-    configVersion = 4
+    configVersion = 5
 }
 
 Addon.TalentDefaults = {
-    SendPartyChatNotification = false,
     MinDurabilityPercent = 80,
     ReplaceReadyCheck = true,
-    RaidReportChannel = "RAID",
+    -- Report mode when in a raid. Values: "NONE","RAID","PARTY","WHISPER","SAY","YELL","EMOTE"
+    RaidReportMode = "NONE",
+    -- Report mode when in a party (not raid). Values: "NONE","PARTY","WHISPER","SAY","YELL","EMOTE"
+    PartyReportMode = "NONE",
 }
 
 -- Migration table: add functions keyed by the target version number.
 -- e.g. migrations[2] = function(self, db, talentDB) ... end
 Addon.migrations = {
     -- no-op placeholder; add migrations here when bumping configVersion
+    -- v5: migrate old SendPartyChatNotification + RaidReportChannel to new RaidReportMode/PartyReportMode
+    [5] = function(self, db, talentDB)
+        if not talentDB then return end
+        if talentDB.SendPartyChatNotification then
+            -- User had notifications enabled – convert to new mode fields
+            local oldRaidChannel = talentDB.RaidReportChannel or "RAID"
+            talentDB.RaidReportMode = oldRaidChannel  -- "RAID" or "PARTY"
+            talentDB.PartyReportMode = "PARTY"
+        else
+            talentDB.RaidReportMode = "NONE"
+            talentDB.PartyReportMode = "NONE"
+        end
+        -- Clean up legacy keys
+        talentDB.SendPartyChatNotification = nil
+        talentDB.RaidReportChannel = nil
+    end,
 }
 
 local function MergeDefaults(db, defaults)
