@@ -225,6 +225,248 @@ local function CountConfirmed()
     return n
 end
 
+-- ==========================================================================
+-- Shared roster helper (extracted for reuse)
+-- ==========================================================================
+local function GetMemberInfo(index)
+    local inRaid = IsInRaid()
+    if inRaid then
+        local name, rank, subgroup, level, class, fileName, zone, online = GetRaidRosterInfo(index)
+        if name then
+            return name, subgroup, online
+        end
+        return nil, nil, nil
+    else
+        local unit = (index == 1) and "player" or ("party" .. (index - 1))
+        if UnitExists(unit) then
+            local uname, realm = UnitFullName(unit)
+            if uname then
+                local fullName = realm and realm ~= "" and (uname .. "-" .. realm) or uname
+                local online = not UnitIsConnected or UnitIsConnected(unit)
+                return fullName, 1, online
+            end
+        end
+        return nil, nil, nil
+    end
+end
+
+-- Check if all tracked members are ready based on current readyMap
+local function CheckAllReady()
+    local totalMembers = GetNumGroupMembers() or 0
+    for i = 1, totalMembers do
+        local fullName, subgroup, online = GetMemberInfo(i)
+        if online and fullName then
+            if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                if readyMap[fullName] ~= true then
+                    return false
+                end
+            end
+        end
+    end
+    return true
+end
+
+-- ==========================================================================
+-- Rapid Mode
+-- ==========================================================================
+local RAPID_RC_LEAD_TIME = 45  -- Send ready check when this many seconds remain
+local RAPID_CUTOFF = 10        -- Cancel if RC not passed by this many seconds remaining
+
+local rapid = {
+    active = false,
+    state = "INACTIVE",    -- INACTIVE, COUNTDOWN, RC_PENDING, DEFERRED, IN_COMBAT
+    remaining = 0,
+    rcPassed = false,
+    rcSent = false,
+    userDeferred = false,  -- true only when user explicitly defers (blocks auto-restart)
+    ticker = nil,
+    pendingRestart = nil,  -- C_Timer handle for post-combat restart (only one at a time)
+}
+
+local function RapidMode_CancelTicker()
+    if rapid.ticker then
+        pcall(function() rapid.ticker:Cancel() end)
+        rapid.ticker = nil
+    end
+end
+
+local function RapidMode_CancelPendingRestart()
+    if rapid.pendingRestart then
+        pcall(function() rapid.pendingRestart:Cancel() end)
+        rapid.pendingRestart = nil
+    end
+end
+
+local function RapidMode_SendRaidWarning(msg)
+    if DB.rapidModeRaidWarning == false then return end
+    if IsInRaid() then
+        pcall(function() SendChatMessage(msg, "RAID_WARNING") end)
+    end
+end
+
+local function RapidMode_InitReadyMap()
+    readyMap = {}
+    if IsPlayerInTrackedGroup() then
+        local me = RosterNameForUnit("player")
+        if me then readyMap[me] = true end
+    end
+end
+
+local function RapidMode_StartCountdown(duration)
+    -- Clear any pending post-combat restart since we are starting now
+    RapidMode_CancelPendingRestart()
+    RapidMode_CancelTicker()
+    duration = duration or DB.rapidModeDuration or 90
+    -- Clamp to configured range
+    if duration < 45 then duration = 45 end
+    if duration > 360 then duration = 360 end
+
+    rapid.state = "COUNTDOWN"
+    rapid.remaining = duration
+    rapid.rcPassed = false
+    rapid.rcSent = false
+    rapid.userDeferred = false
+
+    StartPullTimer(duration)
+    FireCallback("RAPID_COUNTDOWN_START", { duration = duration })
+
+    -- Determine when to send the ready check
+    local rcTriggerRemaining = RAPID_RC_LEAD_TIME
+    if duration <= RAPID_RC_LEAD_TIME + RAPID_CUTOFF then
+        -- Not enough runway; send RC immediately
+        rcTriggerRemaining = duration
+    end
+
+    rapid.ticker = C_Timer.NewTicker(1, function()
+        rapid.remaining = rapid.remaining - 1
+        FireCallback("RAPID_TICK", { remaining = rapid.remaining, state = rapid.state })
+
+        -- Send ready check at the right moment
+        if not rapid.rcSent and rapid.remaining <= rcTriggerRemaining then
+            rapid.rcSent = true
+            rapid.state = "RC_PENDING"
+            RapidMode_InitReadyMap()
+            trackedTotal = ComputeTrackedCount()
+            DoReadyCheck()
+            FireCallback("RAPID_RC_AUTO_SENT", { remaining = rapid.remaining })
+            FireCallback("RC_SENT", {
+                retryNum = 0, maxRetries = 0,
+                confirmedCount = CountConfirmed(), trackedCount = trackedTotal,
+            })
+        end
+
+        -- Cutoff check: cancel if RC was sent but hasn't passed
+        if rapid.rcSent and not rapid.rcPassed and rapid.remaining <= RAPID_CUTOFF then
+            -- One final check in case confirms arrived but FINISHED hasn't fired yet
+            if CheckAllReady() then
+                rapid.rcPassed = true
+                FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
+                FireCallback("RAPID_RC_PASSED", {})
+            else
+                RapidMode_CancelTicker()
+                CancelPullTimer()
+                rapid.state = "DEFERRED"
+                rapid.userDeferred = false  -- auto-deferred, will auto-restart after combat
+                RapidMode_SendRaidWarning("Pull canceled - not everyone is ready.")
+                FireCallback("RAPID_CUTOFF_CANCEL", {})
+                return
+            end
+        end
+
+        -- Timer reached zero: pull is going through
+        if rapid.remaining <= 0 then
+            RapidMode_CancelTicker()
+            -- State will transition to IN_COMBAT when PLAYER_REGEN_DISABLED fires
+            FireCallback("RAPID_PULL_COMPLETE", {})
+        end
+    end, duration)
+end
+
+local function RapidMode_Start()
+    if rapid.active then return end
+    if not IsInGroup() then
+        Debug("Rapid mode requires being in a group")
+        return
+    end
+    if not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player") then
+        Debug("Rapid mode requires raid leader or assistant")
+        return
+    end
+
+    RefreshDB()
+    rapid.active = true
+    rapid.state = "INACTIVE"
+    rapid.userDeferred = false
+
+    -- Register combat events on this frame
+    f:RegisterEvent("PLAYER_REGEN_ENABLED")
+    f:RegisterEvent("PLAYER_REGEN_DISABLED")
+
+    FireCallback("RAPID_SESSION_START", { duration = DB.rapidModeDuration or 90 })
+
+    -- Start first countdown immediately
+    RapidMode_StartCountdown(DB.rapidModeDuration or 90)
+end
+
+local function RapidMode_Stop()
+    if not rapid.active then return end
+    RapidMode_CancelTicker()
+    RapidMode_CancelPendingRestart()
+    if rapid.state == "COUNTDOWN" or rapid.state == "RC_PENDING" then
+        CancelPullTimer()
+    end
+    rapid.active = false
+    rapid.state = "INACTIVE"
+    rapid.rcPassed = false
+    rapid.rcSent = false
+    rapid.userDeferred = false
+
+    f:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    f:UnregisterEvent("PLAYER_REGEN_DISABLED")
+
+    FireCallback("RAPID_SESSION_STOP", {})
+end
+
+local function RapidMode_Defer()
+    if not rapid.active then return end
+    if rapid.state ~= "COUNTDOWN" and rapid.state ~= "RC_PENDING" then return end
+    RapidMode_CancelTicker()
+    CancelPullTimer()
+    rapid.state = "DEFERRED"
+    rapid.userDeferred = true
+    FireCallback("RAPID_DEFERRED", {})
+end
+
+local function RapidMode_Restart()
+    if not rapid.active then return end
+    if rapid.state ~= "DEFERRED" then return end
+    RapidMode_StartCountdown(DB.rapidModeDuration or 90)
+end
+
+local function RapidMode_Skip(targetSeconds)
+    if not rapid.active then return end
+    targetSeconds = targetSeconds or DB.rapidModeSkipTo or 30
+    if targetSeconds < 15 then targetSeconds = 15 end
+    if targetSeconds > 45 then targetSeconds = 45 end
+
+    if rapid.state == "DEFERRED" then
+        RapidMode_StartCountdown(targetSeconds)
+    elseif rapid.state == "COUNTDOWN" or rapid.state == "RC_PENDING" then
+        RapidMode_CancelTicker()
+        CancelPullTimer()
+        RapidMode_StartCountdown(targetSeconds)
+    end
+end
+
+-- Export rapid mode API
+_G.RCPT_RapidMode_Start = RapidMode_Start
+_G.RCPT_RapidMode_Stop = RapidMode_Stop
+_G.RCPT_RapidMode_Defer = RapidMode_Defer
+_G.RCPT_RapidMode_Restart = RapidMode_Restart
+_G.RCPT_RapidMode_Skip = RapidMode_Skip
+_G.RCPT_RapidMode_IsActive = function() return rapid.active end
+_G.RCPT_RapidMode_GetState = function() return rapid.state end
+
 -- Start a ready check and ensure chat listeners are active.
 -- Declared local and exported explicitly to avoid accidental globals.
 local function RCPT_RunReadyCheck()
@@ -247,8 +489,54 @@ end
 _G.RCPT_RunReadyCheck = RCPT_RunReadyCheck
 
 f:SetScript("OnEvent", function(_, event, ...)
-        -- if the player is not able to send a ready check, or the feature is disabled in config, ignore everything
-    if (not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player")) or not DB.enableAutoPullTimers then
+    -- Leader/assistant check always applies
+    if not UnitIsGroupLeader("player") and not UnitIsGroupAssistant("player") then
+        return
+    end
+
+    -- Rapid mode combat events
+    if event == "PLAYER_REGEN_ENABLED" then
+        if rapid.active then
+            if rapid.userDeferred then
+                Debug("Rapid mode: combat ended but user deferred, not restarting")
+            else
+                -- Cancel any previously pending restart before scheduling a new one
+                RapidMode_CancelPendingRestart()
+                Debug("Rapid mode: combat ended, scheduling new cycle")
+                rapid.pendingRestart = C_Timer.NewTimer(2, function()
+                    rapid.pendingRestart = nil
+                    if rapid.active and not rapid.userDeferred and rapid.state == "IN_COMBAT" then
+                        RapidMode_StartCountdown(DB.rapidModeDuration or 90)
+                    end
+                end)
+            end
+        end
+        return
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        if rapid.active then
+            -- Cancel everything in-flight: ticker, pending restart, scheduled cleanup
+            RapidMode_CancelTicker()
+            RapidMode_CancelPendingRestart()
+            if scheduledCleanup then
+                pcall(function() scheduledCleanup:Cancel() end)
+                scheduledCleanup = nil
+            end
+            if rapid.state == "COUNTDOWN" or rapid.state == "RC_PENDING" then
+                CancelPullTimer()
+            end
+            -- Disarm the ready check pipeline so in-flight confirms/finishes are ignored
+            initiatedByMe = false
+            readyMap = {}
+            rapid.state = "IN_COMBAT"
+            rapid.rcSent = false
+            rapid.rcPassed = false
+            FireCallback("RAPID_COMBAT_START", {})
+        end
+        return
+    end
+
+    -- For non-combat events, require enableAutoPullTimers OR active rapid mode
+    if not rapid.active and not DB.enableAutoPullTimers then
         return
     end
     if event == "READY_CHECK" then
@@ -342,7 +630,22 @@ f:SetScript("OnEvent", function(_, event, ...)
             end
         end
 
-        if allReady then
+        if rapid.active then
+            -- Ignore stale RC results if we've already transitioned to combat or deferred
+            if rapid.state == "IN_COMBAT" or rapid.state == "DEFERRED" or rapid.state == "INACTIVE" then
+                Debug("Rapid mode: ignoring late READY_CHECK_FINISHED in state " .. rapid.state)
+            elseif allReady then
+                rapid.rcPassed = true
+                Debug("Rapid mode: RC passed, pull timer continues")
+                FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
+                FireCallback("RAPID_RC_PASSED", {})
+            else
+                rapid.rcPassed = false
+                local notReadyCount = trackedTotal - CountConfirmed()
+                Debug("Rapid mode: RC not passed, waiting for cutoff")
+                FireCallback("RAPID_RC_FAILED", { notReadyCount = notReadyCount, trackedCount = trackedTotal })
+            end
+        elseif allReady then
             Debug("Everyone is ready, starting pull timer")
             FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
             StartPullTimer(DB.pullDuration)
@@ -394,6 +697,13 @@ f:SetScript("OnEvent", function(_, event, ...)
                 Debug("Cancel keyword detected: " .. keyword)
                 CancelPullTimer()
                 FireCallback("PULL_CANCELLED", {})
+                -- Also defer rapid mode if active
+                if rapid.active and (rapid.state == "COUNTDOWN" or rapid.state == "RC_PENDING") then
+                    RapidMode_CancelTicker()
+                    rapid.state = "DEFERRED"
+                    rapid.userDeferred = false
+                    FireCallback("RAPID_DEFERRED", {})
+                end
                 break
             end
         end
@@ -456,6 +766,15 @@ end
 
 -- Teardown: unregister events and stop timers so the addon can be effectively disabled
 local function Teardown()
+    -- Stop rapid mode if active
+    if rapid.active then
+        RapidMode_CancelTicker()
+        RapidMode_CancelPendingRestart()
+        rapid.active = false
+        rapid.state = "INACTIVE"
+        pcall(function() f:UnregisterEvent("PLAYER_REGEN_ENABLED") end)
+        pcall(function() f:UnregisterEvent("PLAYER_REGEN_DISABLED") end)
+    end
     f:UnregisterEvent("READY_CHECK")
     f:UnregisterEvent("READY_CHECK_CONFIRM")
     f:UnregisterEvent("READY_CHECK_FINISHED")
