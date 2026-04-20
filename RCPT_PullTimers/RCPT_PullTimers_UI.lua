@@ -24,9 +24,6 @@ local currentStep = 0
 -- Rapid mode UI state
 local rapidModeActive = false
 
--- Saved drag position (persists within session, not across reloads)
-local savedPoint = nil  -- { point, relativeTo, relativePoint, x, y }
-
 -- Debug helper
 local function Debug(msg)
     if _G.RCPT_Debug then _G.RCPT_Debug(msg) end
@@ -35,6 +32,67 @@ end
 -- DB alias
 local function GetDB()
     return (_G.RCPT and _G.RCPT.db) or RCPT_Config or {}
+end
+
+-- Position persistence helpers
+-- Stored in DB.pullTimerPos = { point, relativePoint, x, y }
+-- Validated against current screen bounds on each restore.
+local BOUNDS_MARGIN = 40  -- px; frame must be at least this far inside the screen
+
+local function SavePosition(point, relativePoint, x, y)
+    local DB = GetDB()
+    DB.pullTimerPos = { point = point, relativePoint = relativePoint, x = x, y = y }
+end
+
+local function GetSavedPosition()
+    local DB = GetDB()
+    return DB.pullTimerPos  -- nil if never saved
+end
+
+-- Check that a saved anchor position would place the frame visibly on screen.
+-- Works by computing where the frame's top-left corner ends up and ensuring
+-- at least BOUNDS_MARGIN px of the frame is inside the viewport.
+local function IsPositionOnScreen(pos, frameWidth, frameHeight)
+    if not pos then return false end
+    local sw = GetScreenWidth()  or 1920
+    local sh = GetScreenHeight() or 1080
+    local scale = UIParent:GetEffectiveScale()
+    sw = sw * scale
+    sh = sh * scale
+
+    -- Resolve the anchor to an approximate screen-space origin (center of UIParent)
+    -- For simplicity we compute the anchor's absolute x/y offset from screen center,
+    -- then apply the saved offset.  This covers the common anchor points.
+    local ax, ay = 0, 0  -- anchor origin relative to screen center
+    local rp = pos.relativePoint or "CENTER"
+    if rp:find("LEFT")   then ax = -(sw / 2) end
+    if rp:find("RIGHT")  then ax =  (sw / 2) end
+    if rp:find("TOP")    then ay =  (sh / 2) end
+    if rp:find("BOTTOM") then ay = -(sh / 2) end
+
+    -- Point on the frame itself
+    local fx, fy = 0, 0
+    local p = pos.point or "CENTER"
+    if p:find("LEFT")   then fx = 0         elseif p:find("RIGHT")  then fx = -frameWidth  else fx = -(frameWidth / 2) end
+    if p:find("TOP")    then fy = 0         elseif p:find("BOTTOM") then fy =  frameHeight else fy =  (frameHeight / 2) end
+
+    -- Top-left of frame in screen coords (origin = screen center)
+    local tlx = ax + (pos.x or 0) + fx
+    local tly = ay + (pos.y or 0) + fy
+
+    -- Convert to 0-based from bottom-left
+    local screenLeft   = tlx + (sw / 2)
+    local screenTop    = tly + (sh / 2)
+    local screenRight  = screenLeft + frameWidth
+    local screenBottom = screenTop - frameHeight
+
+    -- Must have at least BOUNDS_MARGIN px visible on each axis
+    if screenRight  < BOUNDS_MARGIN then return false end
+    if screenLeft   > sw - BOUNDS_MARGIN then return false end
+    if screenTop    < BOUNDS_MARGIN then return false end
+    if screenBottom > sh - BOUNDS_MARGIN then return false end
+
+    return true
 end
 
 -- Format seconds into "M:SS" or "Ns"
@@ -177,9 +235,9 @@ local function CreateStatusFrame()
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         self._userMoved = true
-        -- Capture position so we can restore it on next Show
+        -- Persist position to SavedVariables for cross-session restore
         local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
-        savedPoint = { point = point, relativePoint = relativePoint, x = xOfs, y = yOfs }
+        SavePosition(point, relativePoint, xOfs, yOfs)
     end)
     frame:SetClampedToScreen(true)
 
@@ -321,10 +379,18 @@ end
 local function ShowFrame()
     local f = CreateStatusFrame()
     f:ClearAllPoints()
-    if savedPoint then
-        -- Restore session-saved drag position
-        f:SetPoint(savedPoint.point, UIParent, savedPoint.relativePoint, savedPoint.x, savedPoint.y)
+
+    local saved = GetSavedPosition()
+    local fw = f:GetWidth()  or 320
+    local fh = f:GetHeight() or 80
+
+    if saved and IsPositionOnScreen(saved, fw, fh) then
+        f:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
     else
+        -- Saved position is missing or off-screen; fall back to default
+        if saved then
+            Debug("PullTimers UI saved position out of bounds, resetting")
+        end
         local anchor = ResolveAnchor()
         if anchor then
             f:SetPoint("TOP", anchor, "BOTTOM", 0, -8)
