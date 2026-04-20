@@ -14,6 +14,10 @@ Addon.Defaults = {
     -- Set to 0 or nil to require all groups.
     maxRequiredGroup = 4,
     resetOnDungeonJoin = false,
+    -- Rapid Mode defaults
+    rapidModeDuration = 90,     -- Pull timer duration in seconds (45-360)
+    rapidModeSkipTo = 30,       -- Skip/accelerate target in seconds (15-45)
+    rapidModeRaidWarning = true, -- Send RAID_WARNING when pull is auto-canceled
     configVersion = 5
 }
 

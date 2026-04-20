@@ -21,8 +21,8 @@ local COLOR_FAIL     = { r = 1,    g = 0.15, b = 0.15 }
 -- Current state (reset each cycle)
 local currentStep = 0
 
--- Saved drag position (persists within session, not across reloads)
-local savedPoint = nil  -- { point, relativeTo, relativePoint, x, y }
+-- Rapid mode UI state
+local rapidModeActive = false
 
 -- Debug helper
 local function Debug(msg)
@@ -32,6 +32,76 @@ end
 -- DB alias
 local function GetDB()
     return (_G.RCPT and _G.RCPT.db) or RCPT_Config or {}
+end
+
+-- Position persistence helpers
+-- Stored in DB.pullTimerPos = { point, relativePoint, x, y }
+-- Validated against current screen bounds on each restore.
+local BOUNDS_MARGIN = 40  -- px; frame must be at least this far inside the screen
+
+local function SavePosition(point, relativePoint, x, y)
+    local DB = GetDB()
+    DB.pullTimerPos = { point = point, relativePoint = relativePoint, x = x, y = y }
+end
+
+local function GetSavedPosition()
+    local DB = GetDB()
+    return DB.pullTimerPos  -- nil if never saved
+end
+
+-- Check that a saved anchor position would place the frame visibly on screen.
+-- Works by computing where the frame's top-left corner ends up and ensuring
+-- at least BOUNDS_MARGIN px of the frame is inside the viewport.
+local function IsPositionOnScreen(pos, frameWidth, frameHeight)
+    if not pos then return false end
+    local sw = GetScreenWidth()  or 1920
+    local sh = GetScreenHeight() or 1080
+    local scale = UIParent:GetEffectiveScale()
+    sw = sw * scale
+    sh = sh * scale
+
+    -- Resolve the anchor to an approximate screen-space origin (center of UIParent)
+    -- For simplicity we compute the anchor's absolute x/y offset from screen center,
+    -- then apply the saved offset.  This covers the common anchor points.
+    local ax, ay = 0, 0  -- anchor origin relative to screen center
+    local rp = pos.relativePoint or "CENTER"
+    if rp:find("LEFT")   then ax = -(sw / 2) end
+    if rp:find("RIGHT")  then ax =  (sw / 2) end
+    if rp:find("TOP")    then ay =  (sh / 2) end
+    if rp:find("BOTTOM") then ay = -(sh / 2) end
+
+    -- Point on the frame itself
+    local fx, fy = 0, 0
+    local p = pos.point or "CENTER"
+    if p:find("LEFT")   then fx = 0         elseif p:find("RIGHT")  then fx = -frameWidth  else fx = -(frameWidth / 2) end
+    if p:find("TOP")    then fy = 0         elseif p:find("BOTTOM") then fy =  frameHeight else fy =  (frameHeight / 2) end
+
+    -- Top-left of frame in screen coords (origin = screen center)
+    local tlx = ax + (pos.x or 0) + fx
+    local tly = ay + (pos.y or 0) + fy
+
+    -- Convert to 0-based from bottom-left
+    local screenLeft   = tlx + (sw / 2)
+    local screenTop    = tly + (sh / 2)
+    local screenRight  = screenLeft + frameWidth
+    local screenBottom = screenTop - frameHeight
+
+    -- Must have at least BOUNDS_MARGIN px visible on each axis
+    if screenRight  < BOUNDS_MARGIN then return false end
+    if screenLeft   > sw - BOUNDS_MARGIN then return false end
+    if screenTop    < BOUNDS_MARGIN then return false end
+    if screenBottom > sh - BOUNDS_MARGIN then return false end
+
+    return true
+end
+
+-- Format seconds into "M:SS" or "Ns"
+local function FormatTime(seconds)
+    seconds = seconds or 0
+    if seconds >= 60 then
+        return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+    end
+    return tostring(seconds) .. "s"
 end
 
 ---------------------------------------------------------------------------
@@ -165,9 +235,9 @@ local function CreateStatusFrame()
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         self._userMoved = true
-        -- Capture position so we can restore it on next Show
+        -- Persist position to SavedVariables for cross-session restore
         local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
-        savedPoint = { point = point, relativePoint = relativePoint, x = xOfs, y = yOfs }
+        SavePosition(point, relativePoint, xOfs, yOfs)
     end)
     frame:SetClampedToScreen(true)
 
@@ -211,10 +281,83 @@ local function CreateStatusFrame()
     statusText:SetWordWrap(true)
     statusText:SetText("")
 
+    -- =================================================================
+    -- Rapid mode elements (hidden by default)
+    -- =================================================================
+    local rapidHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    rapidHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -10)
+    rapidHeader:SetText("|TInterface\\Icons\\ability_hunter_efficiency:14:14:0:0|t |cffffcc00RAPID MODE|r")
+    rapidHeader:Hide()
+
+    local rapidCountdown = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge")
+    rapidCountdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -6)
+    rapidCountdown:SetTextColor(1, 0.82, 0)
+    rapidCountdown:Hide()
+
+    local rapidStatus = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    rapidStatus:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -30)
+    rapidStatus:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -30)
+    rapidStatus:SetJustifyH("LEFT")
+    rapidStatus:Hide()
+
+    local btnWidth, btnHeight = 68, 22
+
+    local rapidBtnDefer = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    rapidBtnDefer:SetSize(btnWidth, btnHeight)
+    rapidBtnDefer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 8)
+    rapidBtnDefer:SetText("Defer")
+    rapidBtnDefer:SetScript("OnClick", function()
+        if _G.RCPT_RapidMode_Defer then _G.RCPT_RapidMode_Defer() end
+    end)
+    rapidBtnDefer:Hide()
+
+    local rapidBtnRestart = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    rapidBtnRestart:SetSize(btnWidth, btnHeight)
+    rapidBtnRestart:SetPoint("LEFT", rapidBtnDefer, "RIGHT", 4, 0)
+    rapidBtnRestart:SetText("Restart")
+    rapidBtnRestart:SetScript("OnClick", function()
+        if _G.RCPT_RapidMode_Restart then _G.RCPT_RapidMode_Restart() end
+    end)
+    rapidBtnRestart:Hide()
+
+    local DB = GetDB()
+    local skipLabel = ">> T-" .. ((DB.rapidModeSkipTo or 30) + 15) .. "s"
+    local rapidBtnSkip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    rapidBtnSkip:SetSize(btnWidth + 12, btnHeight)
+    rapidBtnSkip:SetPoint("LEFT", rapidBtnRestart, "RIGHT", 4, 0)
+    rapidBtnSkip:SetText(skipLabel)
+    rapidBtnSkip:SetScript("OnClick", function()
+        if _G.RCPT_RapidMode_Skip then _G.RCPT_RapidMode_Skip() end
+    end)
+    rapidBtnSkip:Hide()
+
+    local rapidBtnStop = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    rapidBtnStop:SetSize(btnWidth + 10, btnHeight)
+    rapidBtnStop:SetPoint("LEFT", rapidBtnSkip, "RIGHT", 4, 0)
+    rapidBtnStop:SetText("End Rapid")
+    rapidBtnStop:SetScript("OnClick", function()
+        if _G.RCPT_RapidMode_Stop then _G.RCPT_RapidMode_Stop() end
+    end)
+    rapidBtnStop:Hide()
+
+    frame._rapid = {
+        header = rapidHeader,
+        countdown = rapidCountdown,
+        status = rapidStatus,
+        btnDefer = rapidBtnDefer,
+        btnRestart = rapidBtnRestart,
+        btnSkip = rapidBtnSkip,
+        btnStop = rapidBtnStop,
+    }
+
     -- Combat safety: hide immediately when combat starts
     frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_REGEN_DISABLED" then
+            if rapidModeActive then
+                -- Rapid mode handles combat itself; don't hide
+                return
+            end
             CancelAllTimers()
             ResetBreadcrumbs()
             self:Hide()
@@ -236,10 +379,18 @@ end
 local function ShowFrame()
     local f = CreateStatusFrame()
     f:ClearAllPoints()
-    if savedPoint then
-        -- Restore session-saved drag position
-        f:SetPoint(savedPoint.point, UIParent, savedPoint.relativePoint, savedPoint.x, savedPoint.y)
+
+    local saved = GetSavedPosition()
+    local fw = f:GetWidth()  or 320
+    local fh = f:GetHeight() or 80
+
+    if saved and IsPositionOnScreen(saved, fw, fh) then
+        f:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y)
     else
+        -- Saved position is missing or off-screen; fall back to default
+        if saved then
+            Debug("PullTimers UI saved position out of bounds, resetting")
+        end
         local anchor = ResolveAnchor()
         if anchor then
             f:SetPoint("TOP", anchor, "BOTTOM", 0, -8)
@@ -267,9 +418,173 @@ local function AutoHideAfter(seconds)
 end
 
 ---------------------------------------------------------------------------
--- Callback handlers
+-- Rapid mode UI helpers
+---------------------------------------------------------------------------
+local function ShowRapidUI()
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    rapidModeActive = true
+    -- Hide normal breadcrumbs
+    for i = 1, 4 do
+        if steps[i] then
+            steps[i].dot:Hide()
+            steps[i].label:Hide()
+            if steps[i].line then steps[i].line:Hide() end
+        end
+    end
+    statusText:Hide()
+    -- Show rapid elements
+    r.header:Show()
+    r.countdown:Show()
+    r.status:Show()
+    r.btnDefer:Show()
+    r.btnRestart:Show()
+    r.btnSkip:Show()
+    r.btnStop:Show()
+    frame:SetSize(320, 80)
+end
+
+local function HideRapidUI()
+    rapidModeActive = false
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    r.header:Hide()
+    r.countdown:Hide()
+    r.status:Hide()
+    r.btnDefer:Hide()
+    r.btnRestart:Hide()
+    r.btnSkip:Hide()
+    r.btnStop:Hide()
+    -- Restore normal breadcrumbs
+    for i = 1, 4 do
+        if steps[i] then
+            steps[i].dot:Show()
+            steps[i].label:Show()
+            if steps[i].line then steps[i].line:Show() end
+        end
+    end
+    statusText:Show()
+    frame:SetSize(320, 68)
+end
+
+local function UpdateRapidButtons(state)
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    if state == "COUNTDOWN" or state == "RC_PENDING" then
+        r.btnDefer:Enable()
+        r.btnRestart:Disable()
+        r.btnSkip:Enable()
+    elseif state == "DEFERRED" then
+        r.btnDefer:Disable()
+        r.btnRestart:Enable()
+        r.btnSkip:Enable()
+    else
+        r.btnDefer:Disable()
+        r.btnRestart:Disable()
+        r.btnSkip:Disable()
+    end
+end
+
+---------------------------------------------------------------------------
+-- Rapid mode callback handlers
+---------------------------------------------------------------------------
+local function OnRapidSessionStart(_, payload)
+    CreateStatusFrame()
+    ShowFrame()
+    ShowRapidUI()
+    local r = frame._rapid
+    -- Refresh skip button label from current config
+    local DB = GetDB()
+    r.btnSkip:SetText(">> T-" .. ((DB.rapidModeSkipTo or 30) + 15).. "s")
+    r.countdown:SetText(FormatTime(payload and payload.duration or 90))
+    r.status:SetText("Starting countdown...")
+    UpdateRapidButtons("COUNTDOWN")
+end
+
+local function OnRapidSessionStop()
+    HideRapidUI()
+    HideFrame()
+end
+
+local function OnRapidCountdownStart(_, payload)
+    if not frame then CreateStatusFrame() end
+    if not frame:IsShown() then ShowFrame() end
+    ShowRapidUI()
+    local r = frame._rapid
+    local duration = payload and payload.duration or 90
+    r.countdown:SetText(FormatTime(duration))
+    r.status:SetText("Countdown active")
+    UpdateRapidButtons("COUNTDOWN")
+end
+
+local function OnRapidTick(_, payload)
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    local r = frame._rapid
+    local remaining = payload and payload.remaining or 0
+    r.countdown:SetText(FormatTime(remaining))
+    local state = payload and payload.state or ""
+    if state == "COUNTDOWN" and remaining > 0 then
+        local rcIn = remaining - 45
+        if rcIn > 0 then
+            r.status:SetText("Ready check in " .. rcIn .. "s")
+        end
+    end
+end
+
+local function OnRapidRCAutoSent()
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    frame._rapid.status:SetText("Ready check sent, waiting...")
+    UpdateRapidButtons("RC_PENDING")
+end
+
+local function OnRapidRCPassed()
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    frame._rapid.status:SetText("|cff00ff00All ready!|r Pull incoming...")
+end
+
+local function OnRapidRCFailed(_, payload)
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    local notReady = payload and payload.notReadyCount or 0
+    local tracked = payload and payload.trackedCount or 0
+    frame._rapid.status:SetText(string.format("|cffff4444%d/%d not ready|r - cutoff at 10s", notReady, tracked))
+end
+
+local function OnRapidCutoffCancel()
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    local r = frame._rapid
+    r.countdown:SetText("--")
+    r.status:SetText("|cffff4444Pull canceled|r - not everyone ready")
+    UpdateRapidButtons("DEFERRED")
+end
+
+local function OnRapidDeferred()
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    local r = frame._rapid
+    r.countdown:SetText("--")
+    r.status:SetText("Pull deferred")
+    UpdateRapidButtons("DEFERRED")
+end
+
+local function OnRapidPullComplete()
+    if not frame or not frame:IsShown() or not frame._rapid then return end
+    local r = frame._rapid
+    r.countdown:SetText("0")
+    r.status:SetText("|cff00ff00Pulling!|r")
+end
+
+local function OnRapidCombatStart()
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    r.countdown:SetText("--")
+    r.status:SetText("In combat...")
+    UpdateRapidButtons("IN_COMBAT")
+end
+
+---------------------------------------------------------------------------
+-- Callback handlers (normal mode)
 ---------------------------------------------------------------------------
 local function OnRCSent(_, payload)
+    if rapidModeActive then return end
     local DB = GetDB()
     if not DB.enableAutoPullTimers then return end
 
@@ -292,6 +607,15 @@ local function OnRCSent(_, payload)
 end
 
 local function OnRCConfirm(_, payload)
+    if rapidModeActive then
+        -- Update rapid mode status with confirm count
+        if frame and frame:IsShown() and frame._rapid then
+            local confirmed = payload and payload.confirmedCount or 0
+            local tracked = payload and payload.trackedCount or 0
+            frame._rapid.status:SetText(string.format("Waiting (%d/%d ready)", confirmed, tracked))
+        end
+        return
+    end
     if not frame or not frame:IsShown() then return end
     local confirmed = payload and payload.confirmedCount or 0
     local tracked   = payload and payload.trackedCount or 0
@@ -299,12 +623,14 @@ local function OnRCConfirm(_, payload)
 end
 
 local function OnRCAllReady(_, payload)
+    if rapidModeActive then return end
     if not frame or not frame:IsShown() then return end
     AdvanceTo(3, "success")
     statusText:SetText("All ready!")
 end
 
 local function OnRCFailedRetry(_, payload)
+    if rapidModeActive then return end
     if not frame or not frame:IsShown() then return end
     local notReady     = payload and payload.notReadyCount or 0
     local tracked      = payload and payload.trackedCount or 0
@@ -338,6 +664,7 @@ local function OnRCFailedRetry(_, payload)
 end
 
 local function OnRCFailedFinal(_, payload)
+    if rapidModeActive then return end
     if not frame or not frame:IsShown() then return end
     CancelRetryTicker()
     local notReady = payload and payload.notReadyCount or 0
@@ -349,6 +676,7 @@ local function OnRCFailedFinal(_, payload)
 end
 
 local function OnPullStarted(_, payload)
+    if rapidModeActive then return end
     if not frame or not frame:IsShown() then return end
     local duration = payload and payload.duration or 0
 
@@ -377,6 +705,7 @@ local function OnPullStarted(_, payload)
 end
 
 local function OnPullCancelled()
+    if rapidModeActive then return end
     if not frame or not frame:IsShown() then return end
     CancelPullTicker()
     AdvanceTo(4, "fail")
@@ -385,6 +714,7 @@ local function OnPullCancelled()
 end
 
 local function OnCycleComplete()
+    if rapidModeActive then return end
     HideFrame()
 end
 
@@ -400,6 +730,18 @@ local EVENTS = {
     { "PULL_STARTED",   OnPullStarted },
     { "PULL_CANCELLED", OnPullCancelled },
     { "CYCLE_COMPLETE", OnCycleComplete },
+    -- Rapid mode events
+    { "RAPID_SESSION_START",   OnRapidSessionStart },
+    { "RAPID_SESSION_STOP",    OnRapidSessionStop },
+    { "RAPID_COUNTDOWN_START", OnRapidCountdownStart },
+    { "RAPID_TICK",            OnRapidTick },
+    { "RAPID_RC_AUTO_SENT",    OnRapidRCAutoSent },
+    { "RAPID_RC_PASSED",       OnRapidRCPassed },
+    { "RAPID_RC_FAILED",       OnRapidRCFailed },
+    { "RAPID_CUTOFF_CANCEL",   OnRapidCutoffCancel },
+    { "RAPID_DEFERRED",        OnRapidDeferred },
+    { "RAPID_PULL_COMPLETE",   OnRapidPullComplete },
+    { "RAPID_COMBAT_START",    OnRapidCombatStart },
 }
 
 local registered = false
@@ -431,7 +773,9 @@ RegisterAll()
 local function Teardown()
     CancelAllTimers()
     UnregisterAll()
+    rapidModeActive = false
     if frame then
+        HideRapidUI()
         ResetBreadcrumbs()
         frame:Hide()
     end
