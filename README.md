@@ -12,7 +12,7 @@ It combines automated pull timers, a dedicated pull-status UI, and a TalentCheck
 
 ## Features
 
-### Pull Timer Automation
+### Pull Timer Automation ```/rcpt```
 
 - Starts a pull timer automatically when the ready check passes.
 - Tracks confirmations against the active group and supports retry logic when a check fails.
@@ -24,9 +24,9 @@ It combines automated pull timers, a dedicated pull-status UI, and a TalentCheck
 - Shows the current stage at a glance, including ready check sent, waiting, result, and pull timer progress.
 - Persists its position and can anchor around the ready-check overlay when relevant.
 
-### Rapid Mode
+### Rapid Mode ```/rcpt rapid```
 
-- Built for rapid progression retries where the raid needs to chain pulls with minimal downtime.
+- Built for rapid progression retries where the raid needs to chain pulls with minimal downtime, automatically beginning after combat finishes.
 - Runs a longer rolling countdown, sends the ready check automatically at the right point, and cancels before pull if the raid is not ready.
 - Supports defer, restart, skip-forward, and stop controls so the group can recover quickly between attempts.
 
