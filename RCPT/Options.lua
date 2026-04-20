@@ -33,6 +33,9 @@ function Options.Init(addon)
         DB.cancelKeywords = DB.cancelKeywords or { "stop", "wait", "hold" }
         DB.maxRequiredGroup = DB.maxRequiredGroup or 4
         DB.resetOnDungeonJoin = DB.resetOnDungeonJoin == nil and false or DB.resetOnDungeonJoin
+        DB.rapidModeDuration = DB.rapidModeDuration or 90
+        DB.rapidModeSkipTo = DB.rapidModeSkipTo or 30
+        DB.rapidModeRaidWarning = DB.rapidModeRaidWarning == nil and true or DB.rapidModeRaidWarning
     end
 
     local function EnsureTalentDefaults()
@@ -134,6 +137,33 @@ function Options.Init(addon)
     })
     if b.EndGroup then b:EndGroup() end
 
+    -- Rapid Mode settings
+    if b.AddDivider then b:AddDivider() end
+    b:AddSection("Rapid Mode")
+
+    local g1r = nil
+    if b.BeginGroup then g1r = b:BeginGroup("Rapid Mode Settings") end
+
+    local rapidDurSlider = b:AddSlider("RCPT_RapidDurationSlider", {
+        min = 45, max = 360, step = 5, label = "Countdown duration (sec)",
+        get = function() return DB.rapidModeDuration end,
+        set = function(v) DB.rapidModeDuration = v end,
+    })
+
+    local rapidSkipSlider = b:AddSlider("RCPT_RapidSkipToSlider", {
+        min = 15, max = 45, step = 5, label = "Skip-to target (sec before pull)",
+        get = function() return DB.rapidModeSkipTo end,
+        set = function(v) DB.rapidModeSkipTo = v end,
+    })
+
+    local cbRapidRW = b:AddCheck("RCPT_RapidRaidWarnCB", {
+        label = "Send raid warning on auto-cancel",
+        get = function() return DB.rapidModeRaidWarning end,
+        set = function(v) DB.rapidModeRaidWarning = v end,
+    })
+
+    if b.EndGroup then b:EndGroup() end
+
     -- visual break between general settings and talent-check related options
     if b.AddDivider then b:AddDivider() end
     b:AddSection("TalentCheck settings")
@@ -212,6 +242,12 @@ function Options.Init(addon)
         if maxRetriesSlider and maxRetriesSlider.Value then maxRetriesSlider.Value:SetText(tostring(DB.maxRetries or 2)) end
         if maxGroupSlider and maxGroupSlider.Value then maxGroupSlider.Value:SetText(tostring(DB.maxRequiredGroup or 4)) end
 
+        if rapidDurSlider then rapidDurSlider:SetValue(DB.rapidModeDuration or 90) end
+        if rapidDurSlider and rapidDurSlider.Value then rapidDurSlider.Value:SetText(tostring(DB.rapidModeDuration or 90)) end
+        if rapidSkipSlider then rapidSkipSlider:SetValue(DB.rapidModeSkipTo or 30) end
+        if rapidSkipSlider and rapidSkipSlider.Value then rapidSkipSlider.Value:SetText(tostring(DB.rapidModeSkipTo or 30)) end
+        if cbRapidRW then cbRapidRW:SetChecked(not not DB.rapidModeRaidWarning) end
+
         local kws = DB.cancelKeywords or {}
         if kwBox then kwBox:SetText(table.concat(kws, ", ")) end
 
@@ -231,6 +267,9 @@ function Options.Init(addon)
         DB.cancelKeywords = { "stop", "wait", "hold" }
         DB.maxRequiredGroup = 4
         DB.resetOnDungeonJoin = false
+        DB.rapidModeDuration = 90
+        DB.rapidModeSkipTo = 30
+        DB.rapidModeRaidWarning = true
 
         TDB.MinDurabilityPercent = 80
         TDB.ReplaceReadyCheck = true
