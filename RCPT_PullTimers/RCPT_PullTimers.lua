@@ -269,7 +269,10 @@ end
 -- ==========================================================================
 -- Rapid Mode
 -- ==========================================================================
-local RAPID_RC_LEAD_TIME = 45  -- Send ready check when this many seconds remain
+-- WoW's ready check runs ~30s before READY_CHECK_FINISHED fires. Keep
+-- (LEAD_TIME - 30) - CUTOFF >= ~15s of buffer so the last responder + tick
+-- jitter can't push us past the cutoff.
+local RAPID_RC_LEAD_TIME = 55  -- Send ready check when this many seconds remain
 local RAPID_CUTOFF = 10        -- Cancel if RC not passed by this many seconds remaining
 
 local rapid = {
@@ -353,6 +356,15 @@ local function RapidMode_StartCountdown(duration)
                 retryNum = 0, maxRetries = 0,
                 confirmedCount = CountConfirmed(), trackedCount = trackedTotal,
             })
+        end
+
+        -- Early-pass: WoW only fires READY_CHECK_FINISHED on the 30s timeout,
+        -- not when the last confirm arrives, so promote eagerly once everyone
+        -- has confirmed to avoid racing the cutoff.
+        if rapid.rcSent and not rapid.rcPassed and CheckAllReady() then
+            rapid.rcPassed = true
+            FireCallback("RC_ALL_READY", { trackedCount = trackedTotal })
+            FireCallback("RAPID_RC_PASSED", {})
         end
 
         -- Cutoff check: cancel if RC was sent but hasn't passed
@@ -498,7 +510,11 @@ f:SetScript("OnEvent", function(_, event, ...)
     if event == "ENCOUNTER_END" then
         if rapid.active then
             local encounterID, encounterName, difficultyID, groupSize, success = ...
-            if rapid.userDeferred then
+            if success == 1 then
+                Debug("Rapid mode: encounter " .. tostring(encounterName) .. " killed, ending session")
+                RapidMode_SendRaidWarning("Boss down! Rapid mode ended.")
+                RapidMode_Stop()
+            elseif rapid.userDeferred then
                 Debug("Rapid mode: encounter ended but user deferred, not restarting")
             else
                 -- Cancel any previously pending restart before scheduling a new one
@@ -579,6 +595,30 @@ f:SetScript("OnEvent", function(_, event, ...)
             readyMap[fullName] = isReady
             Debug(fullName .. " is " .. (isReady and "READY" or "NOT ready"))
             FireCallback("RC_CONFIRM", { fullName = fullName, isReady = isReady, confirmedCount = CountConfirmed(), trackedCount = trackedTotal })
+
+            -- A NO from a tracked player guarantees the cycle will fail.
+            -- Cancel the pull immediately rather than waiting for the cutoff.
+            if not isReady and rapid.active and (rapid.state == "COUNTDOWN" or rapid.state == "RC_PENDING") then
+                local tracked = true
+                if DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and IsInRaid() then
+                    local raidIndex = UnitInRaid(unitToken)
+                    if raidIndex then
+                        local _, _, subgroup = GetRaidRosterInfo(raidIndex)
+                        tracked = subgroup ~= nil and subgroup <= DB.maxRequiredGroup
+                    else
+                        tracked = false
+                    end
+                end
+                if tracked then
+                    Debug("Tracked player " .. fullName .. " responded NO; canceling pull early")
+                    RapidMode_CancelTicker()
+                    CancelPullTimer()
+                    rapid.state = "DEFERRED"
+                    rapid.userDeferred = false
+                    RapidMode_SendRaidWarning("Pull canceled - " .. fullName .. " not ready.")
+                    FireCallback("RAPID_CUTOFF_CANCEL", {})
+                end
+            end
         end
 
     elseif event == "READY_CHECK_FINISHED" then
