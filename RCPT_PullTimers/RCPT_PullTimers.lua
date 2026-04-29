@@ -399,7 +399,7 @@ local function RapidMode_Start()
     rapid.userDeferred = false
 
     -- Register combat events on this frame
-    f:RegisterEvent("PLAYER_REGEN_ENABLED")
+    f:RegisterEvent("ENCOUNTER_END")
     f:RegisterEvent("PLAYER_REGEN_DISABLED")
 
     FireCallback("RAPID_SESSION_START", { duration = DB.rapidModeDuration or 90 })
@@ -421,7 +421,7 @@ local function RapidMode_Stop()
     rapid.rcSent = false
     rapid.userDeferred = false
 
-    f:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    f:UnregisterEvent("ENCOUNTER_END")
     f:UnregisterEvent("PLAYER_REGEN_DISABLED")
 
     FireCallback("RAPID_SESSION_STOP", {})
@@ -495,14 +495,15 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
 
     -- Rapid mode combat events
-    if event == "PLAYER_REGEN_ENABLED" then
+    if event == "ENCOUNTER_END" then
         if rapid.active then
+            local encounterID, encounterName, difficultyID, groupSize, success = ...
             if rapid.userDeferred then
-                Debug("Rapid mode: combat ended but user deferred, not restarting")
+                Debug("Rapid mode: encounter ended but user deferred, not restarting")
             else
                 -- Cancel any previously pending restart before scheduling a new one
                 RapidMode_CancelPendingRestart()
-                Debug("Rapid mode: combat ended, scheduling new cycle")
+                Debug("Rapid mode: encounter ended (" .. tostring(encounterName) .. ", success=" .. tostring(success) .. "), scheduling new cycle")
                 rapid.pendingRestart = C_Timer.NewTimer(2, function()
                     rapid.pendingRestart = nil
                     if rapid.active and not rapid.userDeferred and rapid.state == "IN_COMBAT" then
@@ -772,7 +773,7 @@ local function Teardown()
         RapidMode_CancelPendingRestart()
         rapid.active = false
         rapid.state = "INACTIVE"
-        pcall(function() f:UnregisterEvent("PLAYER_REGEN_ENABLED") end)
+        pcall(function() f:UnregisterEvent("ENCOUNTER_END") end)
         pcall(function() f:UnregisterEvent("PLAYER_REGEN_DISABLED") end)
     end
     f:UnregisterEvent("READY_CHECK")
