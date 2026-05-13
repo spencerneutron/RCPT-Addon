@@ -42,6 +42,8 @@ function RCPT_PrintHelp()
     print(" /rcpt rapid skip [sec]    \226\134\146 Skip to T-N seconds (default: " .. tostring(DB.rapidModeSkipTo or 30) .. ")")
     print(" /rcpt rapid defer         \226\134\146 Defer current rapid mode pull")
     print(" /rcpt rapid restart       \226\134\146 Restart from deferred state")
+    print(" /rcpt rapid report        \226\134\146 Print session report locally")
+    print(" /rcpt rapid report raid   \226\134\146 Post session report to /raid")
 end
 
 function RCPT_SetConfig(key, value)
@@ -157,6 +159,17 @@ function SlashCmdList.RCPT(msg)
             if _G.RCPT_RapidMode_Stop then
                 _G.RCPT_RapidMode_Stop()
                 print("|cff00ccff[RCPT]|r Rapid mode |cffff0000STOPPED|r.")
+            end
+        elseif subCmd == "report" then
+            local target = args[3] and args[3]:lower() or nil
+            if target == "raid" or target == "r" then
+                if _G.RCPT_RapidMode_PostSessionReport then
+                    _G.RCPT_RapidMode_PostSessionReport()
+                end
+            else
+                if _G.RCPT_RapidMode_PrintSessionReport then
+                    _G.RCPT_RapidMode_PrintSessionReport()
+                end
             end
         else
             print("|cffff0000[RCPT]|r Unknown rapid subcommand. Use `/rcpt help`.")

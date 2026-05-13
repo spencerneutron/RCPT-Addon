@@ -284,7 +284,92 @@ local rapid = {
     userDeferred = false,  -- true only when user explicitly defers (blocks auto-restart)
     ticker = nil,
     pendingRestart = nil,  -- C_Timer handle for post-combat restart (only one at a time)
+    -- Session aggregates: persist across cycles until the next RapidMode_Start.
+    -- Cleared on Start so the report remains readable after Stop until a new session begins.
+    session = {
+        startedAt = nil,
+        cancelCount = 0,
+        pulledCount = 0,
+        offenders = {},  -- [fullName] = { class, noCount, noResponseCount }
+    },
 }
+
+local function RapidMode_ResetSession()
+    rapid.session = {
+        startedAt = GetTime(),
+        cancelCount = 0,
+        pulledCount = 0,
+        offenders = {},
+    }
+end
+
+-- Walk the tracked roster (same filters as CheckAllReady / CountConfirmed) and
+-- return every member who isn't ready, classified as explicit "no" or "noresponse".
+local function GetNotReadyTrackedPlayers()
+    local results = {}
+    local inRaid = IsInRaid()
+    local totalMembers = GetNumGroupMembers() or 0
+    for i = 1, totalMembers do
+        if inRaid then
+            local name, _, subgroup, _, _, fileName, _, online = GetRaidRosterInfo(i)
+            if name and online then
+                if not (DB.maxRequiredGroup and DB.maxRequiredGroup > 0 and subgroup and subgroup > DB.maxRequiredGroup) then
+                    local rm = readyMap[name]
+                    if rm ~= true then
+                        table.insert(results, {
+                            name = name,
+                            class = fileName,
+                            reason = (rm == false) and "no" or "noresponse",
+                        })
+                    end
+                end
+            end
+        else
+            local unit = (i == 1) and "player" or ("party" .. (i - 1))
+            if UnitExists(unit) then
+                local uname, realm = UnitFullName(unit)
+                if uname then
+                    local fullName = (realm and realm ~= "") and (uname .. "-" .. realm) or uname
+                    local online = not UnitIsConnected or UnitIsConnected(unit)
+                    if online then
+                        local rm = readyMap[fullName]
+                        if rm ~= true then
+                            local _, classFile = UnitClass(unit)
+                            table.insert(results, {
+                                name = fullName,
+                                class = classFile,
+                                reason = (rm == false) and "no" or "noresponse",
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return results
+end
+
+-- Increment session offender counters and the session cancel counter.
+-- Called only at actual cancellation points (early-NO, cutoff). RC_FAILED at
+-- READY_CHECK_FINISHED does NOT attribute, because a successful late-confirm
+-- can still rescue the cycle before the cutoff.
+local function AttributeOffenders(notReady)
+    rapid.session.cancelCount = (rapid.session.cancelCount or 0) + 1
+    if not notReady then return end
+    for _, info in ipairs(notReady) do
+        local entry = rapid.session.offenders[info.name]
+        if not entry then
+            entry = { class = info.class, noCount = 0, noResponseCount = 0 }
+            rapid.session.offenders[info.name] = entry
+        end
+        if info.class and not entry.class then entry.class = info.class end
+        if info.reason == "no" then
+            entry.noCount = entry.noCount + 1
+        else
+            entry.noResponseCount = entry.noResponseCount + 1
+        end
+    end
+end
 
 local function RapidMode_CancelTicker()
     if rapid.ticker then
@@ -379,8 +464,10 @@ local function RapidMode_StartCountdown(duration)
                 CancelPullTimer()
                 rapid.state = "DEFERRED"
                 rapid.userDeferred = false  -- auto-deferred, will auto-restart after combat
+                local notReady = GetNotReadyTrackedPlayers()
+                AttributeOffenders(notReady)
                 RapidMode_SendRaidWarning("Pull canceled - not everyone is ready.")
-                FireCallback("RAPID_CUTOFF_CANCEL", {})
+                FireCallback("RAPID_CUTOFF_CANCEL", { notReady = notReady })
                 return
             end
         end
@@ -388,6 +475,7 @@ local function RapidMode_StartCountdown(duration)
         -- Timer reached zero: pull is going through
         if rapid.remaining <= 0 then
             RapidMode_CancelTicker()
+            rapid.session.pulledCount = (rapid.session.pulledCount or 0) + 1
             -- State will transition to IN_COMBAT when PLAYER_REGEN_DISABLED fires
             FireCallback("RAPID_PULL_COMPLETE", {})
         end
@@ -409,6 +497,7 @@ local function RapidMode_Start()
     rapid.active = true
     rapid.state = "INACTIVE"
     rapid.userDeferred = false
+    RapidMode_ResetSession()
 
     -- Register combat events on this frame
     f:RegisterEvent("ENCOUNTER_END")
@@ -470,6 +559,87 @@ local function RapidMode_Skip(targetSeconds)
     end
 end
 
+-- Session report: summarises cancels/pulls and top offenders over the session.
+local REPORT_OFFENDER_CAP = 10
+
+local function FormatReportDuration(sec)
+    sec = math.max(0, math.floor(sec or 0))
+    if sec >= 3600 then
+        return string.format("%dh%dm", math.floor(sec / 3600), math.floor((sec % 3600) / 60))
+    elseif sec >= 60 then
+        return string.format("%dm%ds", math.floor(sec / 60), sec % 60)
+    end
+    return sec .. "s"
+end
+
+local function ClassColorCode(class)
+    if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
+        local c = RAID_CLASS_COLORS[class]
+        if c.colorStr then return "|c" .. c.colorStr end
+        return string.format("|cff%02x%02x%02x",
+            math.floor((c.r or 1) * 255),
+            math.floor((c.g or 1) * 255),
+            math.floor((c.b or 1) * 255))
+    end
+    return "|cffaaaaaa"
+end
+
+local function BuildSessionReport()
+    local s = rapid.session or {}
+    local offenders = {}
+    for name, data in pairs(s.offenders or {}) do
+        table.insert(offenders, {
+            name = name,
+            class = data.class,
+            noCount = data.noCount or 0,
+            noResponseCount = data.noResponseCount or 0,
+            total = (data.noCount or 0) + (data.noResponseCount or 0),
+        })
+    end
+    table.sort(offenders, function(a, b)
+        if a.total ~= b.total then return a.total > b.total end
+        return a.name < b.name
+    end)
+    while #offenders > REPORT_OFFENDER_CAP do table.remove(offenders) end
+    local durationSec = 0
+    if s.startedAt then durationSec = math.max(0, math.floor(GetTime() - s.startedAt)) end
+    return {
+        durationSec = durationSec,
+        cancelCount = s.cancelCount or 0,
+        pulledCount = s.pulledCount or 0,
+        topOffenders = offenders,
+    }
+end
+
+local function PrintSessionReport()
+    local r = BuildSessionReport()
+    print(string.format("|cff00ccff[RCPT Rapid Report]|r duration %s | %d pulled | %d canceled",
+        FormatReportDuration(r.durationSec), r.pulledCount, r.cancelCount))
+    if #r.topOffenders == 0 then
+        print("  No cancelled pulls this session.")
+        return
+    end
+    print("  Top offenders (NO / no-response):")
+    for i, o in ipairs(r.topOffenders) do
+        print(string.format("  %d. %s%s|r  %d / %d", i, ClassColorCode(o.class), o.name, o.noCount, o.noResponseCount))
+    end
+end
+
+local function PostSessionReport()
+    if not IsInRaid() then
+        print("|cffff0000[RCPT]|r Not in a raid; rapid report not posted.")
+        return
+    end
+    local r = BuildSessionReport()
+    SendChatMessage(string.format("[RCPT Rapid] duration %s | %d pulled | %d canceled.",
+        FormatReportDuration(r.durationSec), r.pulledCount, r.cancelCount), "RAID")
+    if #r.topOffenders == 0 then return end
+    SendChatMessage("Top offenders (NO / no-response):", "RAID")
+    for i, o in ipairs(r.topOffenders) do
+        SendChatMessage(string.format("%d. %s  %d / %d", i, o.name, o.noCount, o.noResponseCount), "RAID")
+    end
+end
+
 -- Export rapid mode API
 _G.RCPT_RapidMode_Start = RapidMode_Start
 _G.RCPT_RapidMode_Stop = RapidMode_Stop
@@ -478,6 +648,9 @@ _G.RCPT_RapidMode_Restart = RapidMode_Restart
 _G.RCPT_RapidMode_Skip = RapidMode_Skip
 _G.RCPT_RapidMode_IsActive = function() return rapid.active end
 _G.RCPT_RapidMode_GetState = function() return rapid.state end
+_G.RCPT_RapidMode_GetSessionReport = BuildSessionReport
+_G.RCPT_RapidMode_PrintSessionReport = PrintSessionReport
+_G.RCPT_RapidMode_PostSessionReport = PostSessionReport
 
 -- Start a ready check and ensure chat listeners are active.
 -- Declared local and exported explicitly to avoid accidental globals.
@@ -615,8 +788,11 @@ f:SetScript("OnEvent", function(_, event, ...)
                     CancelPullTimer()
                     rapid.state = "DEFERRED"
                     rapid.userDeferred = false
+                    local _, classFile = UnitClass(unitToken)
+                    local notReady = { { name = fullName, class = classFile, reason = "no" } }
+                    AttributeOffenders(notReady)
                     RapidMode_SendRaidWarning("Pull canceled - " .. fullName .. " not ready.")
-                    FireCallback("RAPID_CUTOFF_CANCEL", {})
+                    FireCallback("RAPID_CUTOFF_CANCEL", { notReady = notReady, culprit = fullName })
                 end
             end
         end
@@ -683,8 +859,11 @@ f:SetScript("OnEvent", function(_, event, ...)
             else
                 rapid.rcPassed = false
                 local notReadyCount = trackedTotal - CountConfirmed()
+                -- Display-only: a late confirm can still rescue this cycle before
+                -- the cutoff, so do NOT call AttributeOffenders here.
+                local notReady = GetNotReadyTrackedPlayers()
                 Debug("Rapid mode: RC not passed, waiting for cutoff")
-                FireCallback("RAPID_RC_FAILED", { notReadyCount = notReadyCount, trackedCount = trackedTotal })
+                FireCallback("RAPID_RC_FAILED", { notReadyCount = notReadyCount, trackedCount = trackedTotal, notReady = notReady })
             end
         elseif allReady then
             Debug("Everyone is ready, starting pull timer")

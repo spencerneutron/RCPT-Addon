@@ -11,6 +11,13 @@ local statusText  -- FontString for detail text
 local retryTicker
 local pullTicker
 local autoHideTicker
+local notReadyTicker  -- ephemeral display of failed-pull offenders
+
+-- Rapid frame heights: grow when the ephemeral not-ready row is visible.
+local RAPID_HEIGHT_BASE = 80
+local RAPID_HEIGHT_WITH_NOTREADY = 116
+local NOTREADY_DISPLAY_SECONDS = 10
+local NOTREADY_NAME_CAP = 4  -- show this many names, then "+N more"
 
 -- Colours used for breadcrumb states
 local COLOR_INACTIVE = { r = 0.45, g = 0.45, b = 0.45 }
@@ -104,6 +111,37 @@ local function FormatTime(seconds)
     return tostring(seconds) .. "s"
 end
 
+-- Return a "|cAARRGGBB" prefix for a class file token (e.g. "WARRIOR").
+local function ClassColorCode(class)
+    if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
+        local c = RAID_CLASS_COLORS[class]
+        if c.colorStr then return "|c" .. c.colorStr end
+        return string.format("|cff%02x%02x%02x",
+            math.floor((c.r or 1) * 255),
+            math.floor((c.g or 1) * 255),
+            math.floor((c.b or 1) * 255))
+    end
+    return "|cffaaaaaa"
+end
+
+-- Build a colourised, comma-separated list of not-ready players for the
+-- ephemeral row. Caps the number of names shown and appends "+N more".
+local function FormatNotReadyList(list)
+    if not list or #list == 0 then return "" end
+    local parts = {}
+    local cap = NOTREADY_NAME_CAP
+    for i = 1, math.min(cap, #list) do
+        local p = list[i]
+        local suffix = (p.reason == "no") and "|cffff4444(no)|r" or "|cffaaaaaa(no response)|r"
+        table.insert(parts, ClassColorCode(p.class) .. (p.name or "?") .. "|r " .. suffix)
+    end
+    local result = table.concat(parts, ", ")
+    if #list > cap then
+        result = result .. string.format("  |cffaaaaaa+%d more|r", #list - cap)
+    end
+    return result
+end
+
 ---------------------------------------------------------------------------
 -- Timer management: cancel helpers
 ---------------------------------------------------------------------------
@@ -128,10 +166,18 @@ local function CancelAutoHide()
     end
 end
 
+local function CancelNotReadyTicker()
+    if notReadyTicker then
+        pcall(function() notReadyTicker:Cancel() end)
+        notReadyTicker = nil
+    end
+end
+
 local function CancelAllTimers()
     CancelRetryTicker()
     CancelPullTicker()
     CancelAutoHide()
+    CancelNotReadyTicker()
 end
 
 ---------------------------------------------------------------------------
@@ -300,6 +346,15 @@ local function CreateStatusFrame()
     rapidStatus:SetJustifyH("LEFT")
     rapidStatus:Hide()
 
+    -- Ephemeral row: shows who held up / canceled the last pull.
+    local rapidNotReady = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    rapidNotReady:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
+    rapidNotReady:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -48)
+    rapidNotReady:SetJustifyH("LEFT")
+    rapidNotReady:SetWordWrap(true)
+    rapidNotReady:SetText("")
+    rapidNotReady:Hide()
+
     local btnWidth, btnHeight = 68, 22
 
     local rapidBtnDefer = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -344,6 +399,7 @@ local function CreateStatusFrame()
         header = rapidHeader,
         countdown = rapidCountdown,
         status = rapidStatus,
+        notReady = rapidNotReady,
         btnDefer = rapidBtnDefer,
         btnRestart = rapidBtnRestart,
         btnSkip = rapidBtnSkip,
@@ -420,6 +476,33 @@ end
 ---------------------------------------------------------------------------
 -- Rapid mode UI helpers
 ---------------------------------------------------------------------------
+-- Show / hide the ephemeral not-ready row and resize the rapid frame
+-- accordingly. The row sits between rapidStatus and the buttons (which are
+-- anchored from the bottom and so stay at the new edge after a resize).
+local function ShowNotReadyRow(text)
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    if not r.notReady then return end
+    r.notReady:SetText(text or "")
+    r.notReady:Show()
+    if rapidModeActive then
+        frame:SetSize(320, RAPID_HEIGHT_WITH_NOTREADY)
+    end
+end
+
+local function HideNotReadyRow()
+    CancelNotReadyTicker()
+    if not frame or not frame._rapid then return end
+    local r = frame._rapid
+    if r.notReady then
+        r.notReady:SetText("")
+        r.notReady:Hide()
+    end
+    if rapidModeActive then
+        frame:SetSize(320, RAPID_HEIGHT_BASE)
+    end
+end
+
 local function ShowRapidUI()
     if not frame or not frame._rapid then return end
     local r = frame._rapid
@@ -441,16 +524,21 @@ local function ShowRapidUI()
     r.btnRestart:Show()
     r.btnSkip:Show()
     r.btnStop:Show()
-    frame:SetSize(320, 80)
+    frame:SetSize(320, RAPID_HEIGHT_BASE)
 end
 
 local function HideRapidUI()
+    CancelNotReadyTicker()
     rapidModeActive = false
     if not frame or not frame._rapid then return end
     local r = frame._rapid
     r.header:Hide()
     r.countdown:Hide()
     r.status:Hide()
+    if r.notReady then
+        r.notReady:SetText("")
+        r.notReady:Hide()
+    end
     r.btnDefer:Hide()
     r.btnRestart:Hide()
     r.btnSkip:Hide()
@@ -492,6 +580,7 @@ local function OnRapidSessionStart(_, payload)
     CreateStatusFrame()
     ShowFrame()
     ShowRapidUI()
+    HideNotReadyRow()  -- fresh session: drop any leftover ephemeral from the previous one
     local r = frame._rapid
     -- Refresh skip button label from current config
     local DB = GetDB()
@@ -510,6 +599,7 @@ local function OnRapidCountdownStart(_, payload)
     if not frame then CreateStatusFrame() end
     if not frame:IsShown() then ShowFrame() end
     ShowRapidUI()
+    HideNotReadyRow()  -- clear previous cycle's offenders before the new countdown
     local r = frame._rapid
     local duration = payload and payload.duration or 90
     r.countdown:SetText(FormatTime(duration))
@@ -542,19 +632,37 @@ local function OnRapidRCPassed()
     frame._rapid.status:SetText("|cff00ff00All ready!|r Pull incoming...")
 end
 
+local function ScheduleNotReadyAutoHide()
+    CancelNotReadyTicker()
+    notReadyTicker = C_Timer.NewTimer(NOTREADY_DISPLAY_SECONDS, function()
+        notReadyTicker = nil
+        HideNotReadyRow()
+    end)
+end
+
 local function OnRapidRCFailed(_, payload)
     if not frame or not frame:IsShown() or not frame._rapid then return end
     local notReady = payload and payload.notReadyCount or 0
     local tracked = payload and payload.trackedCount or 0
     frame._rapid.status:SetText(string.format("|cffff4444%d/%d not ready|r - cutoff at 10s", notReady, tracked))
+    local list = payload and payload.notReady
+    if list and #list > 0 then
+        ShowNotReadyRow(FormatNotReadyList(list))
+        ScheduleNotReadyAutoHide()
+    end
 end
 
-local function OnRapidCutoffCancel()
+local function OnRapidCutoffCancel(_, payload)
     if not frame or not frame:IsShown() or not frame._rapid then return end
     local r = frame._rapid
     r.countdown:SetText("--")
     r.status:SetText("|cffff4444Pull canceled|r - not everyone ready")
     UpdateRapidButtons("DEFERRED")
+    local list = payload and payload.notReady
+    if list and #list > 0 then
+        ShowNotReadyRow(FormatNotReadyList(list))
+        ScheduleNotReadyAutoHide()
+    end
 end
 
 local function OnRapidDeferred()
