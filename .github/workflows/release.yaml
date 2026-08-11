@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RETAIL_INTERFACE: 120007
-      BETA_INTERFACE:   120100
+      RETAIL_INTERFACE: 120100
+      BETA_INTERFACE:   120105
 
     steps:
       - name: Checkout source

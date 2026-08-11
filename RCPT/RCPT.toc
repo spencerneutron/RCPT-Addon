@@ -1,4 +1,4 @@
-## Interface: 120005, 120007
+## Interface: 120007, 120100
 ## Title: RCPT
 ## Notes: Bootstrap manager for RCPT modules (loads core and modules on demand)
 ## Author: boolbog
