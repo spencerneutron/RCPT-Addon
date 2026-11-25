@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RETAIL_INTERFACE: 120100
-      BETA_INTERFACE:   120105
+      RETAIL_INTERFACE: 120105
+      BETA_INTERFACE:   120107
 
     steps:
       - name: Checkout source
@@ -60,9 +60,12 @@ jobs:
 
           echo "Updating RCPT.toc version to $BASE"
 
+          # The TOC line is "## Version: x.y.z" (with a colon).
           sed -E -i \
-            "s/^## Version .*/## Version $BASE/" \
+            "s/^## Version:.*/## Version: $BASE/" \
             release/RCPT/RCPT.toc
+          grep -qx "## Version: $BASE" release/RCPT/RCPT.toc \
+            || { echo "::error::RCPT.toc version was not stamped"; exit 1; }
 
           cd release
           zip -r "RCPT_${BASE}.zip" RCPT RCPT_PullTimers RCPT_TalentCheck
@@ -106,8 +109,10 @@ jobs:
           echo "Updating RCPT.toc version to $BASE (beta)"
 
           sed -E -i \
-            "s/^## Version .*/## Version $BASE/" \
+            "s/^## Version:.*/## Version: $BASE/" \
             release/RCPT/RCPT.toc
+          grep -qx "## Version: $BASE" release/RCPT/RCPT.toc \
+            || { echo "::error::RCPT.toc version was not stamped"; exit 1; }
 
           # Rewrite interface to beta
           for toc in \
