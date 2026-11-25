@@ -4,6 +4,28 @@
 local Addon = {}
 Addon.name = "RCPT"
 
+-- Version from the TOC (guarded: metadata API may be missing or throw)
+do
+    local ok, v = pcall(function()
+        return C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("RCPT", "Version")
+    end)
+    Addon.version = (ok and type(v) == "string" and v ~= "") and v or "dev"
+end
+
+local CHAT_PREFIX = "|cff00ccff[RCPT]|r "
+
+-- Chat output helpers (always-available; modules may use Addon.Print / Addon.Debug)
+function Addon.Print(msg)
+    print(CHAT_PREFIX .. tostring(msg))
+end
+
+function Addon.Debug(msg)
+    local db = Addon.db or RCPT_Config
+    if type(db) == "table" and db.debug then
+        print(CHAT_PREFIX .. tostring(msg))
+    end
+end
+
 Addon.Defaults = {
     pullDuration = 10,
     cancelKeywords = { "stop", "wait", "hold" },
@@ -14,10 +36,18 @@ Addon.Defaults = {
     -- Set to 0 or nil to require all groups.
     maxRequiredGroup = 4,
     resetOnDungeonJoin = false,
+    -- Automatic pull timers (rapid mode works regardless)
+    enableAutoPullTimers = false,
     -- Rapid Mode defaults
     rapidModeDuration = 90,     -- Pull timer duration in seconds (45-360)
     rapidModeSkipTo = 30,       -- Skip/accelerate target in seconds (15-45)
     rapidModeRaidWarning = true, -- Send RAID_WARNING when pull is auto-canceled
+    rapidDynamicTimer = true,   -- After a wipe, lengthen the countdown to cover the longest short cooldown
+    rapidWipePrompt = true,     -- Outside a session, offer Rapid Mode after a wipe (leader/assistant)
+    shareCooldowns = true,      -- After a wipe, send own longest short cooldown to the group (addon message)
+    -- Appearance (shared by the pull frame and the ready-check frames)
+    frameScale = 1.0,           -- 0.75-1.5, step 0.05
+    lockFrames = false,         -- true: frames cannot be dragged
     configVersion = 5
 }
 
@@ -80,14 +110,14 @@ function Addon:EnsureDefaults()
     local target = self.Defaults.configVersion or 0
 
     if current ~= target then
-        RCPT_Debug("Config version mismatch: current=" .. tostring(current) .. ", target=" .. tostring(target))
+        Addon.Debug("Config version mismatch: current=" .. tostring(current) .. ", target=" .. tostring(target))
         if current < target then
             self:RunMigrations(current)
         end
         -- always merge missing keys, even if config is newer than target
         MergeDefaults(RCPT_Config, self.Defaults)
         RCPT_Config.configVersion = target
-        RCPT_Debug("Config migrated to version " .. tostring(target))
+        Addon.Debug("Config migrated to version " .. tostring(target))
     else
         MergeDefaults(RCPT_Config, self.Defaults)
     end
@@ -126,12 +156,19 @@ if _G.RCPT and _G.RCPT.RefreshAliases then _G.RCPT:RefreshAliases() end
 -- Module registry / dependency-injection helpers
 Addon.modules = Addon.modules or {}
 
+-- Module Init failures are reported once per module (InitModules retries on every load).
+local function ReportInitFailure(name, mod, err)
+    if mod._initFailureReported then return end
+    mod._initFailureReported = true
+    Addon.Print("Module " .. tostring(name) .. " failed to initialise: " .. tostring(err))
+end
+
 function Addon:RegisterModule(name, mod)
     if not name or not mod then return end
     self.modules[name] = mod
     if self._modulesInitialized and type(mod.Init) == "function" then
-        local ok = pcall(mod.Init, self)
-        if ok then mod._initialized = true end
+        local ok, err = pcall(mod.Init, self)
+        if ok then mod._initialized = true else ReportInitFailure(name, mod, err) end
     end
 end
 
@@ -140,7 +177,7 @@ function Addon:InitModule(name)
     if mod and type(mod.Init) == "function" then
         if mod._initialized then return true end
         local ok, err = pcall(mod.Init, self)
-        if ok then mod._initialized = true end
+        if ok then mod._initialized = true else ReportInitFailure(name, mod, err) end
         return ok, err
     end
     return nil, "NO_MODULE"
@@ -150,8 +187,8 @@ function Addon:InitModules()
     self.modules = self.modules or {}
     for name, mod in pairs(self.modules) do
         if type(mod.Init) == "function" and not mod._initialized then
-            local ok = pcall(mod.Init, self)
-            if ok then mod._initialized = true end
+            local ok, err = pcall(mod.Init, self)
+            if ok then mod._initialized = true else ReportInitFailure(name, mod, err) end
         end
     end
     self._modulesInitialized = true
@@ -187,6 +224,22 @@ end
 -- Return the raw frame object for a registered overlay.
 function Addon:GetOverlayFrame(key)
     return self.overlayFrames and self.overlayFrames[key] or nil
+end
+
+-- Frame-setting listeners (frameScale / lockFrames). Frame modules register a keyed
+-- function (Addon.frameSettingListeners.pull = fn) so re-init never duplicates;
+-- Options calls Addon.NotifyFrameSettings() when either setting changes.
+Addon.frameSettingListeners = Addon.frameSettingListeners or {}
+
+function Addon.NotifyFrameSettings()
+    local listeners = Addon.frameSettingListeners
+    if type(listeners) ~= "table" then return end
+    for key, fn in pairs(listeners) do
+        if type(fn) == "function" then
+            local ok, err = pcall(fn)
+            if not ok then Addon.Debug("Frame setting listener '" .. tostring(key) .. "' failed: " .. tostring(err)) end
+        end
+    end
 end
 
 -- Safe wrapper for UnitIsUnit to protect against Secret/tainted errors
@@ -227,5 +280,5 @@ function Addon.EncounterRestrictionsActive()
     return false
 end
 
-print("|cff00ccff[RCPT]|r Core initialized")
+Addon.Debug("Core initialized")
 return Addon

@@ -1,0 +1,8 @@
+.claude-work/
+.claude/
+.synapse.toml
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+release/

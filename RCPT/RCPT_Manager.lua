@@ -49,6 +49,9 @@ local deferredLoads = {}
 -- Track whether player was previously in an instance so we fire once per join
 local lastInInstance = false
 
+-- Forward declaration: RetryDeferredLoads (below) needs LoadModule, which is defined later.
+local LoadModule
+
 local function RetryDeferredLoads()
     for addonName,_ in pairs(deferredLoads) do
         if RCPT_IsAddOnLoaded(addonName) then
@@ -72,7 +75,7 @@ local function RCPT_IsInGroup()
     return false
 end
 
-local function LoadModule(addonName)
+LoadModule = function(addonName)
     if not addonName then return end
     if RCPT_IsAddOnLoaded(addonName) then return true end
     if InCombatLockdown() then
@@ -188,10 +191,64 @@ _G.RCPT_Manager = {
     Modules = MODULES,
 }
 
+-- Load a module by key ("Main" or "Talent") right now if it is not loaded yet.
+-- Respects the combat deferral in LoadModule. Returns true when the module is loaded,
+-- otherwise false plus a reason (e.g. "IN_COMBAT").
+function _G.RCPT.EnsureModule(key)
+    local addonName = MODULES[key]
+    if not addonName then return false, "UNKNOWN_MODULE" end
+    if RCPT_IsAddOnLoaded(addonName) then
+        -- Loaded but torn down (left the group): re-attach it the same way EnsureModulesForGroup does.
+        if key == "Main" then
+            if not _G.RCPT_MainActive and type(_G.RCPT_Initialize) == "function" then
+                pcall(_G.RCPT_Initialize)
+            end
+        elseif key == "Talent" then
+            if not _G.RCPT_TalentActive and type(_G.RCPT_TalentInitialize) == "function" then
+                pcall(_G.RCPT_TalentInitialize)
+            end
+        end
+        return true
+    end
+    local _, reason = LoadModule(addonName)
+    if RCPT_IsAddOnLoaded(addonName) then return true end
+    return false, reason or "NOT_LOADED"
+end
+
+-- Always-loaded /rcpt handler. The pull-timer module replaces SlashCmdList.RCPT with the
+-- full handler when it loads; until then this stub opens the options panel, or loads the
+-- module and forwards the command to the real handler.
+SLASH_RCPT1 = "/rcpt"
+local function RCPT_SlashStub(msg)
+    msg = msg or ""
+    local cmd = msg:match("^%s*(%S+)")
+    cmd = cmd and cmd:lower() or nil
+    if cmd == "options" or cmd == "config" or cmd == "opt" then
+        local opts = _G.RCPT_Options
+        if opts and type(opts.Open) == "function" then
+            opts.Open()
+        else
+            print("|cff00ccff[RCPT]|r The options panel is not available.")
+        end
+        return
+    end
+
+    local loaded, reason = _G.RCPT.EnsureModule("Main")
+    local handler = SlashCmdList["RCPT"]
+    if loaded and type(handler) == "function" and handler ~= RCPT_SlashStub then
+        handler(msg)
+    elseif reason == "IN_COMBAT" then
+        print("|cff00ccff[RCPT]|r The pull timer module will load after combat. Try again then.")
+    else
+        print("|cff00ccff[RCPT]|r The pull timer module could not be loaded. Use /rcpt options for settings.")
+    end
+end
+SlashCmdList["RCPT"] = RCPT_SlashStub
+
 -- Force-load slash for testing
 SLASH_RCPTMANAGER1 = "/rcptload"
 function SlashCmdList.RCPTMANAGER(msg)
     EnsureModulesForGroup()
 end
 
-print("|cff00ccff[RCPT]|r Manager initialized")
+_G.RCPT_Debug("Manager initialized")

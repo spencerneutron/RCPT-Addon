@@ -1,12 +1,17 @@
-## Interface: 120007, 120100
+## Interface: 120105, 120107
 ## Title: RCPT
-## Notes: Bootstrap manager for RCPT modules (loads core and modules on demand)
+## Notes: Ready checks, pull timers and talent checks, plus Rapid Mode to chain pulls after wipes
 ## Author: boolbog
-## Version: 2.0.0
+## Version: 3.0.0
+## Category: Combat
+## IconTexture: Interface\Icons\ability_hunter_efficiency
+## AddonCompartmentFunc: RCPT_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: RCPT_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: RCPT_OnAddonCompartmentLeave
 ## SavedVariables: RCPT_Config, RCPT_TalentCheckDB
 
 core.lua
-config.lua
+Style.lua
 OptionsBuilder.lua
 Options.lua
 RCPT_Manager.lua
