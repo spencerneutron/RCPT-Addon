@@ -23,12 +23,14 @@ It combines automated pull timers, a dedicated pull-status UI, and a TalentCheck
 - Displays a compact status frame for the ready-check and pull sequence.
 - Shows the current stage at a glance, including ready check sent, waiting, result, and pull timer progress.
 - Persists its position and can anchor around the ready-check overlay when relevant.
+- `/rcpt preview` plays a short demo of the frame (sends nothing, no group needed) so you can see it and move it.
 
 ### Rapid Mode ```/rcpt rapid```
 
 - Built for rapid progression retries where the raid needs to chain pulls with minimal downtime, automatically beginning after combat finishes.
 - Runs a longer rolling countdown, sends the ready check automatically at the right point, and cancels before pull if the raid is not ready.
 - Supports defer, restart, skip-forward, and stop controls so the group can recover quickly between attempts.
+- Start or stop a session with `/rcpt rapid`, the **Rapid Mode session** button in the options panel, or a right-click on RCPT in the addon compartment (leader or assistant only).
 
 ### Talent Check
 
@@ -41,9 +43,21 @@ TalentCheck grew out of an earlier WeakAura concept maintained by the addon auth
 
 ---
 
-## Important Settings
+## Options
 
-RCPT has a full options panel, but these are the settings most players will care about:
+Open the options panel with `/rcpt options` (also `/rcpt config` or `/rcpt opt`), from Options > AddOns > RCPT, or by clicking RCPT in the addon compartment (the AddOns button by the minimap). Every setting has a tooltip.
+
+The Tools section at the bottom has three buttons:
+
+- **Test ready check**: shows the ready-check overlay without a group (refused while a real ready check is on).
+- **Preview pull frame**: the same demo as `/rcpt preview`.
+- **Reset frame positions**: puts the pull timer and ready check frames back at their default positions.
+
+The Appearance section sets the size of the RCPT frames (**Frame scale**, 75-150%) and can lock them in place (**Lock frames**). While unlocked, drag any RCPT frame to move it; positions are saved.
+
+### Important Settings
+
+These are the settings most players will care about:
 
 - Pull timer duration.
 - Rapid Mode duration and skip target.
